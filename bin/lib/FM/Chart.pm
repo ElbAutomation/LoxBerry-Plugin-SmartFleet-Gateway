@@ -78,10 +78,14 @@ sub werte_lesen {
             next;
         }
         $consec = 0;
-        my %wert = map { $_->[0] => $_->[1] } @$aus;
+        my %wert = map { $_->[0] => [ $_->[1], $_->[2] ] } @$aus;
         for my $o (@{ $je{$b} }) {
-            if (exists $wert{$o}) { push @werte, { b => $b, o => $o, v => $wert{$o} }; }
-            else                  { $fehlt++; }
+            if (exists $wert{$o}) {
+                my $w = { b => $b, o => $o, v => $wert{$o}[0] };
+                $w->{e} = $wert{$o}[1] if defined $wert{$o}[1] && $wert{$o}[1] ne '';
+                push @werte, $w;
+            }
+            else { $fehlt++; }
         }
     }
     my $naechster = $anzahl ? (($start + $gelaufen) % $anzahl) : 0;
@@ -198,9 +202,14 @@ sub anforderungen_lesen {
         }
         my ($ok, $body) = $abruf->($b);
         my $aus = $ok ? parse_all($body) : undef;
-        my %wert = $aus ? (map { $_->[0] => $_->[1] } @$aus) : ();
+        my %wert = $aus ? (map { $_->[0] => [ $_->[1], $_->[2] ] } @$aus) : ();
         for my $e (@{ $je{$b} }) {
-            push @cr, { b => $b, o => $e->{o}, v => (exists $wert{ $e->{o} } ? $wert{ $e->{o} } : undef) };
+            my $c = { b => $b, o => $e->{o}, v => undef };
+            if (exists $wert{ $e->{o} }) {
+                $c->{v} = $wert{ $e->{o} }[0];
+                $c->{e} = $wert{ $e->{o} }[1] if defined $wert{ $e->{o} }[1] && $wert{ $e->{o} }[1] ne '';
+            }
+            push @cr, $c;
         }
     }
     return (\@cr, \@rest);

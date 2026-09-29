@@ -124,8 +124,13 @@ sub get {
     $sagen->("-> GET $base$path" . ($headers{Authorization} ? ' (Basic-Auth)' : ''));
     my $r = _ua()->get($base . $path, { headers => \%headers });
     $sagen->('<- ' . $r->{status} . ($r->{success} && defined $r->{content} ? "\n$r->{content}" : ''));
-    return (0, undef) if !$r->{success};
-    return (1, $r->{content});
+    return (0, undef, $r->{status}) if !$r->{success};
+    return (1, $r->{content}, $r->{status});
+}
+
+sub ist_gen1 {
+    my ($mstype) = @_;
+    return (defined $mstype && $mstype =~ /\A[01]\z/) ? 1 : 0;
 }
 
 sub collect {
@@ -134,26 +139,40 @@ sub collect {
     my $cred  = $ms->{Credentials_RAW};
     my $dm    = $opt{device_monitor_uuid};
     my $sagen = $opt{sagen} || sub { };
+    my $skip = ref($opt{skip}) eq 'HASH' ? $opt{skip} : {};
 
-    my (%values, @missing);
+    my (%values, @missing, @neu_fehlend);
     my $antworten = 0;
+    my %antwort;
 
     for my $m (@$metrics) {
+        next if $skip->{ $m->{key} };
         my $path = $m->{path};
         if ($path eq 'DEVICEMONITOR') {
             if (!$dm) { push @missing, $m->{key}; next; }
             $path = "/jdev/sps/io/$dm/all";
         }
-        my ($ok, $body) = get($base, $cred, $path, $sagen);
-        if (!$ok) { push @missing, $m->{key}; next; }
-        $antworten++;
+        if (!$antwort{$path}) {
+            my ($ok, $body, $status) = get($base, $cred, $path, $sagen);
+            $antwort{$path} = [ $ok, $body, $status ];
+            $antworten++ if $ok;
+        }
+        my ($ok, $body, $status) = @{ $antwort{$path} };
+        if (!$ok) {
+            push @missing, $m->{key};
+            push @neu_fehlend, $m->{key} if defined $status && ($status == 404 || $status == 400);
+            next;
+        }
         my $will_roh = ($m->{pick} eq 'tempcpu' || $m->{pick} eq 'tempstm32');
         my $v = parse_value($m->{pick}, $will_roh ? $body : ll_value($body));
         if (defined $v) { $values{ $m->{key} } = $v; }
-        else            { push @missing, $m->{key}; }
+        else {
+            push @missing, $m->{key};
+            push @neu_fehlend, $m->{key};
+        }
     }
 
-    return (\%values, \@missing, ($antworten > 0 ? 1 : 0));
+    return (\%values, \@missing, ($antworten > 0 ? 1 : 0), \@neu_fehlend);
 }
 
 sub identity {

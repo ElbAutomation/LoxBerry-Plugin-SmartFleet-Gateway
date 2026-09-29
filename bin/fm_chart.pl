@@ -94,7 +94,11 @@ for my $msno (sort { $a <=> $b } keys %anf_je_ms) {
         return FM::Miniserver::get($base, $cred, "/jdev/sps/io/$u/all");
     };
     my ($cr, $rest) = FM::Chart::anforderungen_lesen($anf_je_ms{$msno}, $abruf, deadline => $lauf_deadline);
-    push @antworten, map { { msno => $msno + 0, b => $_->{b}, o => $_->{o}, v => $_->{v} } } @$cr;
+    push @antworten, map {
+        my $a = { msno => $msno + 0, b => $_->{b}, o => $_->{o}, v => $_->{v} };
+        $a->{e} = $_->{e} if defined $_->{e} && $_->{e} ne '';
+        $a;
+    } @$cr;
     push @offen, map { { msno => $msno + 0, b => $_->{b}, o => $_->{o} } } @$rest;
     say_v("Miniserver $msno: " . scalar(@$cr) . ' Einzelanforderungen beantwortet, ' . scalar(@$rest) . ' offen');
 }

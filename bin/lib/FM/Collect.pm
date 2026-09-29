@@ -12,6 +12,12 @@ use FM::Miniserver;
 
 use constant IDENT_RETRY => 3600;
 
+use constant FEHLT_PRUEFUNG => 86400;
+
+my %NIE_MERKEN = map { $_ => 1 } qw(sys_cpu sys_heap_used sys_heap_total);
+
+use constant DEVTREE_GEN1_MIN => 3600;
+
 sub due {
     my ($state, $now, $interval) = @_;
     $interval = 300 if !$interval || $interval < 1;
@@ -83,14 +89,28 @@ sub miniserver_record {
     my @missing;
     my $reachable;
 
+    my $fehlt_alle = ref($opt{fehlt}) eq 'HASH' ? $opt{fehlt} : undef;
+    my $fehlt = $fehlt_alle && ref($fehlt_alle->{$msno}) eq 'HASH' ? $fehlt_alle->{$msno} : {};
+    my %skip = map { $_ => 1 } grep { $fehlt->{$_} > $now } keys %$fehlt;
+
     if ($metrics && @$metrics) {
         my $t0 = Time::HiRes::time();
-        my ($values, $miss, $ok) = FM::Miniserver::collect(
-            $ms, $metrics, device_monitor_uuid => $cached->{device_monitor_uuid}, sagen => $sagen);
+        my ($values, $miss, $ok, $neu) = FM::Miniserver::collect(
+            $ms, $metrics, device_monitor_uuid => $cached->{device_monitor_uuid},
+            skip => \%skip, sagen => $sagen);
         $rec{rt_ms} = int((Time::HiRes::time() - $t0) * 1000);
         $rec{v}     = $values;
         @missing    = @$miss;
         $reachable  = $ok;
+
+        if ($fehlt_alle) {
+            my %neu = map { $_ => 1 } grep { !$NIE_MERKEN{$_} } @{ $neu || [] };
+            for my $k (keys %$values) { delete $fehlt->{$k}; }
+            for my $k (keys %neu)     { $fehlt->{$k} = int($now) + FEHLT_PRUEFUNG; }
+            for my $k (keys %$fehlt)  { delete $fehlt->{$k} if $fehlt->{$k} <= $now && !$neu{$k}; }
+            if (%$fehlt) { $fehlt_alle->{$msno} = $fehlt; }
+            else         { delete $fehlt_alle->{$msno}; }
+        }
     }
 
     if ($will_inventar) {
@@ -108,9 +128,15 @@ sub miniserver_record {
     }
 
     my $will_devtree = $opt{devicetree} ? 1 : 0;
-    if ($will_devtree && devicetree_due($cached, $now, $opt{devicetree_interval}, $opt{devicetree_every})) {
+    my $devtree_every = $opt{devicetree_every};
+    if (FM::Miniserver::ist_gen1($cached->{mstype})) {
+        my $iv = ($opt{devicetree_interval} && $opt{devicetree_interval} >= 1) ? $opt{devicetree_interval} : 300;
+        my $min_every = int((DEVTREE_GEN1_MIN + $iv - 1) / $iv);
+        $devtree_every = $min_every if !$devtree_every || $devtree_every < $min_every;
+    }
+    if ($will_devtree && devicetree_due($cached, $now, $opt{devicetree_interval}, $devtree_every)) {
         my $baum = FM::Miniserver::devicetree($ms, $sagen);
-        remember_devicetree($cache, $msno, $now, $opt{devicetree_interval}, $opt{devicetree_every});
+        remember_devicetree($cache, $msno, $now, $opt{devicetree_interval}, $devtree_every);
         if ($baum && $baum->{ok}) {
             $rec{devtree} = { tag => $baum->{tag}, attrs => $baum->{attrs}, children => $baum->{children} };
         }
@@ -150,6 +176,9 @@ sub ms_message_text {
     return (defined $desc && $desc ne '') ? $desc : 'Systemmeldung ohne Titel';
 }
 
+use constant SRC_NOK => 'ms_message';
+use constant SRC_OK  => 'ms_message_ok';
+
 sub ms_message_events {
     my ($entries, $seen, $rooms) = @_;
     $entries = [] if ref($entries) ne 'ARRAY';
@@ -167,15 +196,15 @@ sub ms_message_events {
         my $room_uuid = $e->{roomUuid};
         my $room = (defined $room_uuid && exists $rooms->{$room_uuid}) ? $rooms->{$room_uuid} : undef;
         my $detail = (defined $e->{desc} && $e->{desc} ne '') ? $e->{desc} : undef;
-        push @events, { sev => ms_message_sev($e->{severity}), msg => $titel,
+        push @events, { src => SRC_NOK, sev => ms_message_sev($e->{severity}), msg => $titel,
                          room => $room, detail => $detail };
     }
 
     for my $uuid (sort keys %$seen) {
         next if exists $neu{$uuid};
         my $titel = (ref($seen->{$uuid}) eq 'HASH') ? $seen->{$uuid}{titel} : undef;
-        my $msg = (defined $titel && $titel ne '') ? "$titel - behoben" : 'Systemmeldung behoben';
-        push @events, { sev => 'info', msg => $msg, room => undef, detail => undef };
+        my $msg = (defined $titel && $titel ne '') ? $titel : ms_message_text({});
+        push @events, { src => SRC_OK, sev => 'info', msg => $msg, room => undef, detail => undef };
     }
 
     return (\@events, \%neu);

@@ -136,6 +136,7 @@ for my $msno (keys %miniservers) {
 my @ms_records;
 
 my $ident_cache = ref($state->{ms_ident}) eq 'HASH' ? $state->{ms_ident} : {};
+my $fehlt_cache = ref($state->{ms_fehlt}) eq 'HASH' ? $state->{ms_fehlt} : {};
 
 if (!@$ms_metrics && !$want_inventory) {
     say_v('Miniserver-Telemetrie und Inventar sind fuer diesen Standort abgeschaltet.');
@@ -146,7 +147,7 @@ else {
             $miniservers{$msno}, $msno, $ms_metrics, $ident_cache, $now,
             inventory => $want_inventory, devicetree => $want_devicetree,
             devicetree_interval => $interval, devicetree_every => $devtree_every,
-            sagen => \&say_deb);
+            fehlt => $fehlt_cache, sagen => \&say_deb);
         push @ms_records, $rec;
         say_v("Miniserver $msno: " . scalar(keys %{ $rec->{v} }) . " Werte, "
               . "erreichbar=$rec->{reachable}"
@@ -156,6 +157,7 @@ else {
 }
 
 $state->{ms_ident} = $ident_cache if !$dry;
+$state->{ms_fehlt} = $fehlt_cache if !$dry;
 
 my $ms_messages_seen = ref($state->{ms_messages}) eq 'HASH' ? $state->{ms_messages} : {};
 for my $msno (sort { $a <=> $b } keys %miniservers) {
@@ -172,7 +174,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
         my %opt = (msno => $msno);
         $opt{room}   = $ev->{room}   if defined $ev->{room};
         $opt{detail} = $ev->{detail} if defined $ev->{detail};
-        FM::Events::add($rt, $ev->{sev}, 'ms_message', $ev->{msg}, %opt);
+        FM::Events::add($rt, $ev->{sev}, $ev->{src}, $ev->{msg}, %opt);
     }
     say_v("Miniserver $msno: " . scalar(@entries) . " Systemmeldung(en), "
           . scalar(@$events) . " davon gemeldet/behoben") if @entries || @$events;
