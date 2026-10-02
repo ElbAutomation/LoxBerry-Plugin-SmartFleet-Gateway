@@ -14,10 +14,11 @@ use constant ZWECK       => 'tunnel_open';
 use constant PIDFILE     => '/dev/shm/smartfleet-tunnel.pid';
 use constant LOGFILE     => '/dev/shm/smartfleet-tunnel.log';
 use constant WARTEZEIT   => 60;
-use constant ABLAUF_SEK  => 3600;
+use constant ABLAUF_SEK  => 21600;
 
 use constant EVENT_SRC_URL    => 'tunnel_url';
 use constant EVENT_SRC_CLOSED => 'tunnel_closed';
+use constant EVENT_SRC_ERROR  => 'tunnel_error';
 
 sub riegel_offen {
     my ($cfg) = @_;
@@ -103,6 +104,17 @@ sub pid_verfolgt {
     return $pid;
 }
 
+sub start_lesen {
+    my ($pidfile) = @_;
+    $pidfile = PIDFILE if !defined $pidfile;
+    open my $fh, '<', $pidfile or return undef;
+    my @zeilen = <$fh>;
+    close $fh;
+    return undef if @zeilen < 3 || !defined $zeilen[2];
+    (my $t = $zeilen[2]) =~ s/\s+//g;
+    return $t =~ /\A[0-9]+\z/ ? $t + 0 : undef;
+}
+
 sub ablauf_lesen {
     my ($pidfile) = @_;
     $pidfile = PIDFILE if !defined $pidfile;
@@ -145,8 +157,8 @@ sub start {
     my $wartezeit  = defined $arg{wartezeit}  ? $arg{wartezeit}  : WARTEZEIT;
     my $ablauf_sek = defined $arg{ablauf_sek} ? $arg{ablauf_sek} : ABLAUF_SEK;
 
-    return (0, 'cloudflared nicht gefunden') if !defined $bin || !-x $bin;
-    return (0, 'kein Zielpunkt angegeben') if !defined $ziel_url || $ziel_url eq '';
+    return (0, 'cloudflared_fehlt') if !defined $bin || !-x $bin;
+    return (0, 'kein_zielpunkt') if !defined $ziel_url || $ziel_url eq '';
 
     stop($pidfile, $logfile);
 
@@ -159,7 +171,7 @@ sub start {
     my $exitcode = system($kommando);
     if ($exitcode != 0) {
         stop($pidfile, $logfile);
-        return (0, 'cloudflared konnte nicht gestartet werden (Exitcode ' . ($exitcode >> 8) . ')');
+        return (0, 'start_fehlgeschlagen');
     }
 
     my $url;
@@ -170,12 +182,12 @@ sub start {
     }
     if (!$url) {
         stop($pidfile, $logfile);
-        return (0, "Zeitueberschreitung - keine URL nach $wartezeit s");
+        return (0, 'keine_url');
     }
 
     if (open my $efh, '>>', $pidfile) {
-        my $ablauf = $start_zeit + $ablauf_sek;
-        print {$efh} "$ablauf\n";
+        my $ablauf = $ablauf_sek > 0 ? $start_zeit + $ablauf_sek : 0;
+        print {$efh} "$ablauf\n$start_zeit\n";
         close $efh;
     }
 
@@ -186,13 +198,19 @@ sub durchsetzen {
     my (%arg) = @_;
     my $pidfile = defined $arg{pidfile} ? $arg{pidfile} : PIDFILE;
     my $jetzt   = defined $arg{jetzt}   ? $arg{jetzt}   : time();
+    my $riegel  = exists $arg{riegel} ? $arg{riegel} : 1;
 
     return { status => 'kein_tunnel' } if !-e $pidfile;
+
+    if (!$riegel) {
+        stop($pidfile);
+        return { status => 'geschlossen', grund => 'riegel_geschlossen' };
+    }
 
     my $pid    = pid_verfolgt($pidfile);
     my $ablauf = ablauf_lesen($pidfile);
 
-    if (!$pid || !defined($ablauf) || $ablauf <= $jetzt) {
+    if (!$pid || !defined($ablauf) || ($ablauf > 0 && $ablauf <= $jetzt)) {
         stop($pidfile);
         return {
             status => 'geschlossen',
@@ -202,7 +220,7 @@ sub durchsetzen {
         };
     }
 
-    return { status => 'offen', ablauf => $ablauf, verbleibend => $ablauf - $jetzt };
+    return { status => 'offen', ablauf => $ablauf, verbleibend => ($ablauf > 0 ? $ablauf - $jetzt : undef) };
 }
 
 sub oeffnen {
@@ -224,11 +242,12 @@ sub oeffnen {
     return (0, 'cloudflared_fehlt') if !defined $bin || !-x $bin;
 
     return start(
-        bin       => $bin,
-        ziel_url  => $arg{ziel_url},
-        pidfile   => $arg{pidfile},
-        logfile   => $arg{logfile},
-        wartezeit => $arg{wartezeit},
+        bin        => $bin,
+        ziel_url   => $arg{ziel_url},
+        pidfile    => $arg{pidfile},
+        logfile    => $arg{logfile},
+        wartezeit  => $arg{wartezeit},
+        ablauf_sek => ($arg{dauerhaft} ? 0 : undef),
     );
 }
 

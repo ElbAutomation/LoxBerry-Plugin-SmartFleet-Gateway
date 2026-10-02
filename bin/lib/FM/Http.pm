@@ -10,6 +10,17 @@ use warnings;
 use HTTP::Tiny;
 
 my $UA;
+my $VERIFY = 1;
+
+sub verify_ssl {
+    my ($an) = @_;
+    my $neu = $an ? 1 : 0;
+    undef $UA if $neu != $VERIFY;
+    $VERIFY = $neu;
+    return $VERIFY;
+}
+
+sub verify_an { return $VERIFY }
 
 sub _ua {
     return $UA if $UA;
@@ -19,7 +30,7 @@ sub _ua {
     $UA = HTTP::Tiny->new(
         agent           => 'fm-agent/1.0',
         timeout         => 30,
-        verify_SSL      => 1,
+        verify_SSL      => $VERIFY,
         default_headers => { 'Accept' => 'application/json' },
     );
     return $UA;

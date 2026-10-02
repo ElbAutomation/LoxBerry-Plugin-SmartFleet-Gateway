@@ -18,7 +18,7 @@ use FM::TunnelPw;
 use FM::Tunnel;
 use FM::Events;
 
-my ($dir, $verbose, $start, $stop, $status, $enforce, $nonce, $ts, $antwort);
+my ($dir, $verbose, $start, $stop, $status, $enforce, $nonce, $ts, $antwort, $dauerhaft);
 GetOptions(
     'dir=s'     => \$dir,
     'verbose'   => \$verbose,
@@ -29,7 +29,8 @@ GetOptions(
     'nonce=s'   => \$nonce,
     'ts=s'      => \$ts,
     'antwort=s' => \$antwort,
-) or die "Aufruf: fm_tunnel.pl --dir <konfigdir> --start --nonce <n> --ts <t> --antwort <hex> | --stop | --status | --enforce [--verbose]\n";
+    'dauerhaft' => \$dauerhaft,
+) or die "Aufruf: fm_tunnel.pl --dir <konfigdir> --start --nonce <n> --ts <t> --antwort <hex> [--dauerhaft] | --stop | --status | --enforce [--verbose]\n";
 
 die "fm_tunnel: --dir fehlt\n" if !$dir;
 my $rt = FM::Paths::laufzeit($dir);
@@ -49,12 +50,8 @@ if (!$cfg->{site}) {
 }
 
 if ($stop) {
-    my $war_da = -e FM::Tunnel::PIDFILE();
     FM::Tunnel::stop();
-    if ($war_da) {
-        FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_CLOSED,
-            'Support-Tunnel geschlossen (manuell)');
-    }
+    FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_CLOSED, 'manuell');
     say_v('Tunnel gestoppt (falls einer lief).');
     exit 0;
 }
@@ -64,8 +61,10 @@ if ($status) {
     my $url = $pid ? FM::Tunnel::url_aus_log() : undef;
     if ($pid && $url) {
         my $ablauf = FM::Tunnel::ablauf_lesen();
+        my $seit   = FM::Tunnel::start_lesen();
         print "url=$url\n";
         print 'ablauf=' . (defined $ablauf ? $ablauf : '') . "\n";
+        print 'seit=' . (defined $seit ? $seit : '') . "\n";
         exit 0;
     }
     print "kein Tunnel offen\n";
@@ -73,11 +72,10 @@ if ($status) {
 }
 
 if ($enforce) {
-    my $ergebnis = FM::Tunnel::durchsetzen();
+    my $ergebnis = FM::Tunnel::durchsetzen(riegel => FM::Tunnel::riegel_offen($cfg));
     if ($ergebnis->{status} eq 'geschlossen') {
         my $grund = defined $ergebnis->{grund} ? $ergebnis->{grund} : 'unbekannt';
-        FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_CLOSED,
-            "Support-Tunnel geschlossen ($grund)");
+        FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_CLOSED, $grund);
         say_v("Tunnel beendet: $grund");
     }
     else {
@@ -122,10 +120,13 @@ my ($ok, $ergebnis) = FM::Tunnel::oeffnen(
     antwort     => $antwort,
     ziel_url    => $ziel_url,
     zusatzpfade => \@zusatzpfade,
+    dauerhaft   => ($dauerhaft ? 1 : 0),
 );
 
 if ($ok) {
-    if (!FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_URL, $ergebnis)) {
+    my $ablauf = FM::Tunnel::ablauf_lesen();
+    if (!FM::Events::add($rt, 'info', FM::Tunnel::EVENT_SRC_URL, $ergebnis,
+                         (defined $ablauf ? (detail => "$ablauf") : ()))) {
         say_v('URL-Meldung fehlgeschlagen - Tunnel wird wieder geschlossen');
         FM::Tunnel::stop();
         print "meldung_fehlgeschlagen\n";
@@ -136,6 +137,7 @@ if ($ok) {
     exit 0;
 }
 
+FM::Events::add($rt, 'error', FM::Tunnel::EVENT_SRC_ERROR, $ergebnis);
 say_v("Tunnel nicht gestartet: $ergebnis");
 print "$ergebnis\n";
 exit 1;

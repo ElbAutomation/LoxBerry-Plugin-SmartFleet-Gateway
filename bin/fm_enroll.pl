@@ -94,6 +94,8 @@ if (!$p) {
 diag("Code entschluesselt - Serveradresse: $p->{url}, Fingerprint: " . kurz($p->{fp})
      . ", Token: " . kurz($p->{token}));
 sag("Server: $p->{url}");
+FM::Http::verify_ssl(!$p->{lb});
+sag("Server laeuft auf einem LoxBerry (Testinstallation) - Zertifikat wird nicht geprueft.") if $p->{lb};
 
 my $keyfile = FM::Config::keyfile($dir);
 if (-s $keyfile && !$force && eval { FM::Keys::public_raw($keyfile); 1 }) {
@@ -165,8 +167,11 @@ $name = $ans->{name} if defined $ans->{name} && $ans->{name} ne '';
 my $partner_name = (defined $ans->{partner_name} && $ans->{partner_name} ne '')
     ? $ans->{partner_name} : $ca_payload->{sub};
 
+my %alt = %$cfg;
+delete $alt{lb_server};
 versuchen(sub { FM::Config::save($dir, {
-    %$cfg,
+    %alt,
+    ($p->{lb} ? (lb_server => 1) : ()),
     site        => $ans->{site},
     name        => $name,
     server      => $p->{url},

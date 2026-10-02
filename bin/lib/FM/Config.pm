@@ -26,6 +26,8 @@ sub load {
     return {} if !defined $raw || $raw eq '';
     my $c = eval { JSON::PP->new->decode($raw) };
     die "FM::Config: $f ist kein gueltiges JSON\n" if !$c;
+    require FM::Http;
+    FM::Http::verify_ssl(!$c->{lb_server});
     return $c;
 }
 
@@ -57,7 +59,7 @@ sub parse_code {
     }
     die "FM::Config: nur https ist zulaessig\n"
         if $p->{u} !~ m{^https://} && !$ENV{FM_ALLOW_HTTP};
-    return { url => $p->{u}, token => $p->{t}, fp => $p->{f} };
+    return { url => $p->{u}, token => $p->{t}, fp => $p->{f}, lb => ($p->{l} ? 1 : 0) };
 }
 
 sub path_prefix {

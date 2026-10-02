@@ -23,12 +23,16 @@ sub allowed {
     return 1;
 }
 
+sub _ua {
+    require FM::Http;
+    return HTTP::Tiny->new(agent => 'fm-agent/1.0', timeout => 15, verify_SSL => FM::Http::verify_an());
+}
+
 sub run {
     my ($base, $url) = @_;
     return undef if !allowed($base, $url);
 
-    my $ua = HTTP::Tiny->new(agent => 'fm-agent/1.0', timeout => 15);
-    my $r  = $ua->get($url);
+    my $r  = _ua()->get($url);
     my $st = $r->{status};
 
     return undef if !defined $st || $st == 599;

@@ -30,7 +30,8 @@ use File::Spec;
 use FM::Backup::Upload;
 
 my ($dir, $verbose, $mit_log);
-GetOptions('dir=s' => \$dir, 'verbose' => \$verbose, 'log' => \$mit_log)
+my $nachpoll;
+GetOptions('dir=s' => \$dir, 'verbose' => \$verbose, 'log' => \$mit_log, 'nachpoll' => \$nachpoll)
     or die "Aufruf: fm_sync.pl --dir <konfigdir> [--verbose]\n";
 die "fm_sync: --dir fehlt\n" if !$dir;
 my $rt = FM::Paths::laufzeit($dir);
@@ -213,6 +214,8 @@ if ($backup_store) {
     }
 }
 
+my $fernwartung_lief = 0;
+
 my %HANDLER = (
     ping => sub { return (1, 'pong'); },
 
@@ -252,20 +255,29 @@ my %HANDLER = (
 
     tunnel_open => sub {
         my ($job) = @_;
+        $fernwartung_lief = 1;
         my $payload = (ref($job) eq 'HASH' && ref($job->{payload}) eq 'HASH')
                     ? $job->{payload} : {};
         my $nonce   = $payload->{nonce};
         my $ts      = defined $payload->{ts} ? "$payload->{ts}" : undef;
         my $antwort = $payload->{antwort};
-        return (0, 'Auftrag unvollstaendig')
-            if !defined $nonce   || $nonce eq ''
+        if (!defined $nonce   || $nonce eq ''
             || !defined $ts      || $ts !~ /\A[0-9]+\z/
-            || !defined $antwort || $antwort eq '';
+            || !defined $antwort || $antwort eq '') {
+            FM::Events::add($rt, 'error', 'tunnel_error', 'auftrag_unvollstaendig');
+            return (0, 'Auftrag unvollstaendig');
+        }
 
         my @arg = ($^X, "$Bin/fm_tunnel.pl", '--dir', $dir, '--start',
                    '--nonce', $nonce, '--ts', $ts, '--antwort', $antwort);
+        push @arg, '--dauerhaft' if defined $payload->{dauer} && $payload->{dauer} eq 'dauerhaft';
         my $rc = system(@arg);
         return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Tunnel gestartet' : 'Tunnel nicht gestartet');
+    },
+    tunnel_close => sub {
+        $fernwartung_lief = 1;
+        my $rc = system($^X, "$Bin/fm_tunnel.pl", '--dir', $dir, '--stop');
+        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Tunnel beendet' : 'Tunnel nicht beendet');
     },
 );
 
@@ -285,5 +297,11 @@ print 'Sync abgeschlossen, Sequenz ' . $state->{seq} . "\n" if $verbose;
 FM::Loxlog::ok($log, 'Sync abgeschlossen, Sequenz ' . $state->{seq});
 FM::Loxlog::ende($log);
 FM::Loxlog::ende($upload_log);
+
+if ($fernwartung_lief && !$nachpoll) {
+    close($lock);
+    exec($^X, "$Bin/fm_sync.pl", '--dir', $dir, '--nachpoll', ($verbose ? '--verbose' : ()))
+        or warn "fm_sync: Nachpoll nicht startbar: $!\n";
+}
 exit 0;
 

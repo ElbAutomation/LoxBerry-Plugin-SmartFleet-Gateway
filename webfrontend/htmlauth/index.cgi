@@ -449,7 +449,7 @@ if ($aktion =~ /\Avault_(?:optin|widerruf|pin_zuruecksetzen)\z/) {
 }
 my $tunnel_erlaubt = $stg->{tunnel_erlaubt} ? 1 : 0;
 
-my ($tunnel_offen, $tunnel_ablauf);
+my ($tunnel_offen, $tunnel_ablauf, $tunnel_seit);
 if ($angemeldet) {
     my $tunnel_pl = File::Spec->catfile($lbpbindir, 'fm_tunnel.pl');
     if (open(my $sfh, '-|', $^X, $tunnel_pl, '--dir', $configdir, '--status')) {
@@ -457,6 +457,7 @@ if ($angemeldet) {
             chomp $zeile;
             $tunnel_offen  = 1  if $zeile =~ /^url=/;
             $tunnel_ablauf = $1 if $zeile =~ /^ablauf=([0-9]+)\z/;
+            $tunnel_seit   = $1 if $zeile =~ /^seit=([0-9]+)\z/;
         }
         close $sfh;
     }
@@ -663,14 +664,16 @@ if ($angemeldet) {
     );
 
     if ($tunnel_offen) {
+        my $dauerhaft = defined $tunnel_ablauf && $tunnel_ablauf == 0;
+        $out->param(TUNNEL_DAUERHAFT => ($dauerhaft ? 1 : 0));
         $out->param(TUNNEL_ABLAUF_BEKANNT => (defined $tunnel_ablauf ? 1 : 0));
-        if (defined $tunnel_ablauf) {
+        my $seit = defined $tunnel_seit ? $tunnel_seit
+                 : (defined $tunnel_ablauf && !$dauerhaft) ? $tunnel_ablauf - FM::Tunnel::ABLAUF_SEK() : undef;
+        $out->param(TUNNEL_SEIT => zeitpunkt_text($seit)) if defined $seit;
+        if (defined $tunnel_ablauf && !$dauerhaft) {
             my $verbleibend = $tunnel_ablauf - $now;
             $verbleibend = 0 if $verbleibend < 0;
-            $out->param(
-                TUNNEL_SEIT        => zeitpunkt_text($tunnel_ablauf - FM::Tunnel::ABLAUF_SEK()),
-                TUNNEL_VERBLEIBEND => int($verbleibend / 60 + 0.5),
-            );
+            $out->param(TUNNEL_VERBLEIBEND => int($verbleibend / 60 + 0.5));
         }
     }
 
