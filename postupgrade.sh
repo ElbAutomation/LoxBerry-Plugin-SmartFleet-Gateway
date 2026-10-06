@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SmartFleet Client
+# LoxBerry SmartFleet Gateway
 # Copyright (c) 2026 Michael Schlenstedt. Alle Rechte vorbehalten.
 # Nutzung, Weitergabe und Veraenderung nur nach den Lizenzbedingungen,
 # die diesem Programm beiliegen (LICENSE).
