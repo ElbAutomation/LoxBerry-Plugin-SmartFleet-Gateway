@@ -18,6 +18,7 @@ use FM::Config;
 use FM::State;
 use FM::Loxlog;
 use FM::Miniserver;
+use FM::Settings;
 use FM::Backup::Fetch;
 use FM::Backup::Pack;
 use FM::Loxplan;
@@ -95,6 +96,7 @@ if (!$ok_lb) {
 }
 
 my %miniservers = LoxBerry::System::get_miniservers();
+%miniservers = FM::Miniserver::auswahl(\%miniservers, FM::Settings::get($dir, 'ms_weglassen', {}));
 for my $msno (keys %miniservers) {
     next if FM::Miniserver::ist_lokal($miniservers{$msno});
     delete $miniservers{$msno};
@@ -235,6 +237,16 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
             FM::Events::add($rt, 'error', 'projekt', "Miniserver $msno: Uebertragung fehlgeschlagen - $meldung", msno => 0);
             say_err("Miniserver $msno: Uebertragung fehlgeschlagen - $meldung");
             $fehler_gesamt++;
+        } elsif ($lage eq 'abgelehnt') {
+            $state->{projekt}{$msno}{app_version} = $app_version;
+            $state->{projekt}{$msno}{dateiname}   = $datei;
+            $state->{projekt}{$msno}{sha256}      = $sha256;
+            $state->{projekt}{$msno}{groesse}     = $groesse;
+            $state->{projekt}{$msno}{erzwungen_ts} = $marker_mtime if $erzwingen;
+            projekt_speichern();
+            FM::Events::add($rt, 'warn', 'projekt',
+                "Miniserver $msno: nicht hochgeladen - $meldung (in den Einstellungen des Plugins abwaehlen)", msno => 0);
+            say_v("Miniserver $msno: nicht hochgeladen - $meldung");
         } else {
             $state->{projekt}{$msno}{app_version} = $app_version;
             $state->{projekt}{$msno}{dateiname}   = $datei;

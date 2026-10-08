@@ -18,6 +18,7 @@ use FM::Config;
 use FM::State;
 use FM::Loxlog;
 use FM::Miniserver;
+use FM::Settings;
 use FM::Events;
 use FM::Spool;
 use FM::Chart;
@@ -60,6 +61,7 @@ if (!$ok_lb) {
 }
 
 my %miniservers = LoxBerry::System::get_miniservers();
+%miniservers = FM::Miniserver::auswahl(\%miniservers, FM::Settings::get($dir, 'ms_weglassen', {}));
 for my $msno (keys %miniservers) {
     next if FM::Miniserver::ist_lokal($miniservers{$msno});
     delete $miniservers{$msno};

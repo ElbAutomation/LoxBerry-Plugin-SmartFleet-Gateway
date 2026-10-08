@@ -27,6 +27,13 @@ sub due {
     return $next <= $now ? 1 : 0;
 }
 
+sub ident_cache {
+    my ($state, $site) = @_;
+    return {} if ref($state) ne 'HASH' || ref($state->{ms_ident}) ne 'HASH';
+    return {} if !defined $site || !defined $state->{ms_ident_site} || $state->{ms_ident_site} ne $site;
+    return $state->{ms_ident};
+}
+
 sub identity_due {
     my ($cached, $app_version, $now) = @_;
     return 0 if !defined $app_version || $app_version eq '';
@@ -215,11 +222,11 @@ sub build_record {
     my %rec = (
         ts => $now + 0,
         lb => ($lb && ref($lb) eq 'HASH' ? $lb : {}),
-        ms => ($ms && ref($ms) eq 'ARRAY' ? $ms : []),
     );
+    $rec{ms} = $ms if ref($ms) eq 'ARRAY';
     $rec{lb_name}    = $lb_name    if defined $lb_name    && $lb_name    ne '';
     $rec{lb_version} = $lb_version if defined $lb_version && $lb_version ne '';
-    $rec{lb_id}      = $lb_id      if defined $lb_id      && $lb_id      ne '';
+    $rec{lb_id}      = substr($lb_id, 0, 12) if defined $lb_id && $lb_id ne '';
     return \%rec;
 }
 

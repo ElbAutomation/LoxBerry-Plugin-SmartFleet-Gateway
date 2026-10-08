@@ -42,6 +42,12 @@ sub ist_lokal {
     return $WAHR{lc $v} ? 0 : 1;
 }
 
+sub auswahl {
+    my ($ms, $weglassen) = @_;
+    my %weg = map { ("$_" => 1) } (ref($weglassen) eq 'ARRAY' ? @$weglassen : ());
+    return map { ($_ => $ms->{$_}) } grep { !$weg{"$_"} } keys %$ms;
+}
+
 sub backup_passwort {
     my ($ms) = @_;
     my $cred = $ms->{Credentials_RAW};

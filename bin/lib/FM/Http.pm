@@ -45,6 +45,22 @@ sub get {
     return ($r->{status}, $r->{content}, $r->{headers});
 }
 
+my $UA_EXTERN;
+sub _ua_extern {
+    return $UA_EXTERN if $UA_EXTERN;
+    if (!eval { require IO::Socket::SSL; 1 }) {
+        die "FM::Http: IO::Socket::SSL fehlt - https ist damit nicht moeglich\n";
+    }
+    $UA_EXTERN = HTTP::Tiny->new(agent => 'fm-agent/1.0', timeout => 30, verify_SSL => 1);
+    return $UA_EXTERN;
+}
+
+sub get_extern {
+    my ($url) = @_;
+    my $r = _ua_extern()->get($url);
+    return ($r->{status}, $r->{content}, $r->{headers});
+}
+
 sub post_json {
     my ($url, $body, $headers, $sagen) = @_;
     $sagen ||= sub { };

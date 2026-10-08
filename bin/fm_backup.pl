@@ -112,6 +112,7 @@ if (!$ok_lb) {
 }
 
 my %miniservers = LoxBerry::System::get_miniservers();
+%miniservers = FM::Miniserver::auswahl(\%miniservers, FM::Settings::get($dir, 'ms_weglassen', {}));
 
 for my $msno (keys %miniservers) {
     next if FM::Miniserver::ist_lokal($miniservers{$msno});
@@ -505,6 +506,10 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
             say_err("Miniserver $msno: Uebertragung fehlgeschlagen - $meldung"
                 . ($stuecke ? " (nach $stuecke Stueck(en), naechster Poll setzt fort)" : ''));
             $fehler_gesamt++;
+        } elsif ($lage eq 'abgelehnt') {
+            FM::Events::add($rt, 'warn', 'backup',
+                "Miniserver $msno: nicht hochgeladen - $meldung (in den Einstellungen des Plugins abwaehlen)", msno => 0);
+            say_warn("Miniserver $msno: nicht hochgeladen - $meldung");
         } elsif ($lage eq 'done') {
             FM::Events::add($rt, 'info', 'backup',
                 "Miniserver $msno: Backup erfolgreich hochgeladen"

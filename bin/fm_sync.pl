@@ -24,6 +24,8 @@ use FM::Sync;
 use FM::Spool;
 use FM::Events;
 use FM::Vault;
+use FM::Geraeteupdate;
+use POSIX ();
 use FM::Chart;
 use FM::Element;
 use File::Spec;
@@ -150,6 +152,13 @@ if ($ev_offset) {
 
 $state->{desired} = ref($ans->{desired}) eq 'HASH' ? $ans->{desired} : {};
 
+eval {
+    my $soll = FM::Geraeteupdate::soll_stufe($state->{desired});
+    my $eigen = defined $soll ? FM::Geraeteupdate::eigene() : undef;
+    FM::Geraeteupdate::stufe_setzen(md5 => $eigen->{md5}, soll => $soll) if $eigen;
+    1;
+};
+
 if (ref($ans->{charts_auswahl}) eq 'ARRAY') {
     eval { FM::Chart::auswahl_speichern($dir, $ans->{charts_auswahl}); 1 }
         or say_v('Charts: Auswahl nicht gespeichert');
@@ -198,6 +207,10 @@ if ($backup_store) {
                     "Miniserver $msno: Uebertragung fehlgeschlagen - $meldung", msno => 0);
                 say_upload_err("Miniserver $msno: Uebertragung fehlgeschlagen - $meldung"
                     . ($stuecke ? " (nach $stuecke Stueck(en))" : ''));
+            } elsif ($lage eq 'abgelehnt') {
+                FM::Events::add($rt, 'warn', 'backup',
+                    "Miniserver $msno: nicht hochgeladen - $meldung (in den Einstellungen des Plugins abwaehlen)", msno => 0);
+                say_upload_v("Miniserver $msno: nicht hochgeladen - $meldung");
             } elsif ($lage eq 'done') {
                 FM::Events::add($rt, 'info', 'backup',
                     "Miniserver $msno: Backup erfolgreich hochgeladen"
@@ -234,6 +247,37 @@ my %HANDLER = (
 
         my $rc = system(@arg);
         return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Backup erzeugt' : "Laeufer meldete $rc");
+    },
+
+    plugin_update => sub {
+        my $eigen = FM::Geraeteupdate::eigene();
+        return (0, 'Plugin-Daten nicht lesbar') if !$eigen;
+        my ($st, $text) = FM::Http::get_extern(defined $eigen->{releasecfg} ? $eigen->{releasecfg} : '');
+        my $rel = (defined $st && $st == 200) ? FM::Geraeteupdate::release_cfg($text) : undef;
+        my $tmp = File::Spec->catdir($rt, 'update');
+        mkdir $tmp if !-d $tmp;
+        return FM::Geraeteupdate::update_starten(
+            laufend => $eigen->{version}, release => $rel, temp => $tmp, md5 => $eigen->{md5},
+            holen   => sub { my ($s, $c) = FM::Http::get_extern($_[0]); return ($s, $c); },
+            starter => sub {
+                my ($zip, $md5) = @_;
+                no warnings 'once';
+                my $pi = File::Spec->catfile($LoxBerry::System::lbhomedir, 'sbin', 'plugininstall.pl');
+                my $log = File::Spec->catfile(
+                    defined $LoxBerry::System::lbplogdir ? $LoxBerry::System::lbplogdir : $rt, 'plugin_update.log');
+                my $pid = fork();
+                return 0 if !defined $pid;
+                if (!$pid) {
+                    POSIX::setsid();
+                    open STDIN, '<', File::Spec->devnull;
+                    open STDOUT, '>>', $log;
+                    open STDERR, '>&', \*STDOUT;
+                    exec('sudo', $pi, 'action=autoupdate', "pid=$md5", "file=$zip", 'cgi=1',
+                         'tempfile=smartfleet-update-' . time) or POSIX::_exit(1);
+                }
+                return 1;
+            },
+        );
     },
 
     projekt_neu => sub {

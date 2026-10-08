@@ -113,6 +113,12 @@ sub send_one {
 
     my ($st, $ans) = _post($cfg, $keyfile, '/api/backup/init.php', $initDaten, $roh);
 
+    if ($st == 409 && defined $ans->{error} && $ans->{error} eq 'ms_konflikt') {
+        $meta->{uploaded}  = 1;
+        $meta->{abgelehnt} = 'ms_konflikt';
+        _write_meta($offen->{dir}, $meta);
+        return ('abgelehnt', 'der Miniserver wird von einem anderen Gateway uebertragen');
+    }
     if ($st != 200) {
         return ('error', "init: HTTP $st");
     }

@@ -9,7 +9,7 @@ use warnings;
 use File::Spec;
 use JSON::PP;
 
-our @FELDER = qw(backup_store tunnel_erlaubt);
+our @FELDER = qw(backup_store tunnel_erlaubt ms_weglassen);
 
 sub _file { my ($dir) = @_; return File::Spec->catfile($dir, 'plugin.json'); }
 
@@ -29,7 +29,7 @@ sub load {
     return $out;
 }
 
-our %NUR_LOKAL = (backup_store => 1);
+our %NUR_LOKAL = (backup_store => 1, ms_weglassen => 1);
 
 sub get {
     my ($dir, $feld, $agentcfg) = @_;

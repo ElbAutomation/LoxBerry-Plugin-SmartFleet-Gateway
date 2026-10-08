@@ -13,6 +13,7 @@ use lib "$Bin/lib", "$Bin/../lib";
 
 use FM::Config;
 use FM::Miniserver;
+use FM::Settings;
 use FM::Vault;
 
 my ($dir, $verbose);
@@ -54,6 +55,7 @@ if (!FM::Vault::namen_bekannt($dir)) {
 }
 
 my %miniservers = LoxBerry::System::get_miniservers();
+%miniservers = FM::Miniserver::auswahl(\%miniservers, FM::Settings::get($dir, 'ms_weglassen', {}));
 
 for my $msno (sort { $a <=> $b } keys %miniservers) {
     my $ms = $miniservers{$msno};

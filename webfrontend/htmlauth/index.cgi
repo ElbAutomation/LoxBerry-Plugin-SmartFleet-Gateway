@@ -28,6 +28,7 @@ use FM::Config;
 use FM::Pin;
 use FM::Restore;
 use FM::Settings;
+use FM::Miniserver;
 use FM::State;
 use FM::TunnelPw;
 use FM::Vault;
@@ -46,6 +47,7 @@ my $cfg       = FM::Config::load($configdir);
 my $stg = {
     backup_store     => FM::Settings::get($configdir, 'backup_store',     $cfg),
     tunnel_erlaubt   => FM::Settings::get($configdir, 'tunnel_erlaubt',   $cfg),
+    ms_weglassen     => FM::Settings::get($configdir, 'ms_weglassen',     $cfg),
 };
 
 my $backup_store_anzeige = $stg->{backup_store}
@@ -236,6 +238,7 @@ my %MELDUNG_ORT = (
     einstellungen      => 'sicherungen',
     wiederherstellung  => 'wiederherstellung',
     messwerte          => 'messwerte',
+    miniserver_auswahl => 'miniserver',
     pruefen            => 'testen',
 );
 
@@ -333,6 +336,17 @@ if ($aktion eq 'einstellungen' || $aktion eq 'messwerte') {
                 : melde(0, $L{'FM.MELDUNG_SPEICHERN_FEHLER'}, $ort);
         }
     }
+}
+
+if ($aktion eq 'miniserver_auswahl') {
+    my %alle = LoxBerry::System::get_miniservers();
+    my %an = map { ($_ => 1) } grep { $_ ne '' } split(/\0/, defined $POST->{ms_an} ? $POST->{ms_an} : '');
+    my @lokal = grep { FM::Miniserver::ist_lokal($alle{$_}) } sort { $a <=> $b } keys %alle;
+    my @weg = grep { !$an{$_} } @lokal;
+    $stg->{ms_weglassen} = [ map { $_ + 0 } @weg ];
+    eval { FM::Settings::save($configdir, $stg); 1 }
+        ? melde(1, sprintf($L{'FM.MELDUNG_MS_AUSWAHL_OK'}, scalar(@lokal) - scalar(@weg), scalar(@lokal)), $ort)
+        : melde(0, $L{'FM.MELDUNG_SPEICHERN_FEHLER'}, $ort);
 }
 
 if ($aktion eq 'wiederherstellung') {
@@ -618,6 +632,24 @@ $out->param(
     PARTNER_NAME   => ($cfg->{partner_name} || $cfg->{partner} || ''),
 );
 
+if ($freigegeben) {
+    my %alle = LoxBerry::System::get_miniservers();
+    my %weg = map { ("$_" => 1) } (ref($stg->{ms_weglassen}) eq 'ARRAY' ? @{ $stg->{ms_weglassen} } : ());
+    my @ms_liste;
+    for my $k (sort { $a <=> $b } keys %alle) {
+        my $m = $alle{$k};
+        my $lokal = FM::Miniserver::ist_lokal($m);
+        push @ms_liste, {
+            MS_NR      => $k,
+            MS_NAME    => defined $m->{Name} ? $m->{Name} : '',
+            MS_ADRESSE => defined $m->{IPAddress} ? $m->{IPAddress} : '',
+            MS_AN      => ($lokal && !$weg{"$k"}) ? 1 : 0,
+            MS_CLOUD   => $lokal ? 0 : 1,
+        };
+    }
+    $out->param(MS_LISTE => \@ms_liste, MS_LEER => (@ms_liste ? 0 : 1));
+}
+
 $out->param(
     BACKUP_STORE     => $backup_store_anzeige,
     SERVER_INTERVAL  => $server_interval,
@@ -627,7 +659,7 @@ $out->param(
 
 if (!$meldung && ($cgi->param('mo') || '')) {
     my $wo = $cgi->param('mo');
-    my %ORTE = map { $_ => 1 } qw(verbindung fernwartung tresor passwort sicherungen wiederherstellung messwerte testen trennen);
+    my %ORTE = map { $_ => 1 } qw(verbindung fernwartung tresor passwort sicherungen wiederherstellung messwerte miniserver testen trennen);
     if ($ORTE{$wo}) {
         my $text = eval { FM::B64::b64u_decode($cgi->param('ms') || '') };
         $meldung = {

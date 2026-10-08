@@ -18,6 +18,8 @@ use FM::Spool;
 use FM::Catalog;
 use FM::Miniserver;
 use FM::Linfo;
+use FM::Geraeteupdate;
+use FM::Http;
 use FM::Collect;
 use FM::Events;
 use FM::Loxlog;
@@ -126,6 +128,7 @@ my $want_devicetree = (exists $tcfg->{devicetree} && !$tcfg->{devicetree}) ? 0 :
 my $devtree_every = ($tcfg->{devicetree_every} && $tcfg->{devicetree_every} >= 1) ? $tcfg->{devicetree_every} : 3;
 
 my %miniservers = $get_miniservers->();
+%miniservers = FM::Miniserver::auswahl(\%miniservers, FM::Settings::get($dir, 'ms_weglassen', {}));
 
 for my $msno (keys %miniservers) {
     next if FM::Miniserver::ist_lokal($miniservers{$msno});
@@ -135,7 +138,7 @@ for my $msno (keys %miniservers) {
 
 my @ms_records;
 
-my $ident_cache = ref($state->{ms_ident}) eq 'HASH' ? $state->{ms_ident} : {};
+my $ident_cache = FM::Collect::ident_cache($state, $cfg->{site});
 my $fehlt_cache = ref($state->{ms_fehlt}) eq 'HASH' ? $state->{ms_fehlt} : {};
 
 if (!@$ms_metrics && !$want_inventory) {
@@ -157,6 +160,7 @@ else {
 }
 
 $state->{ms_ident} = $ident_cache if !$dry;
+$state->{ms_ident_site} = $cfg->{site} if !$dry;
 $state->{ms_fehlt} = $fehlt_cache if !$dry;
 
 my $ms_messages_seen = ref($state->{ms_messages}) eq 'HASH' ? $state->{ms_messages} : {};
@@ -182,8 +186,21 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
 $state->{ms_messages} = $ms_messages_seen if !$dry;
 
 if (!$dry) {
-    FM::Spool::append($rt, FM::Collect::build_record(
-        int($now), $lb_values, \@ms_records, $lbfriendlyname->(), $lbversion->(), lb_id_lesen()));
+    my $rec = FM::Collect::build_record(
+        int($now), $lb_values, ((!@$ms_metrics && !$want_inventory) ? undef : \@ms_records),
+        $lbfriendlyname->(), $lbversion->(), lb_id_lesen());
+    eval {
+        my $e = FM::Geraeteupdate::eigene();
+        if ($e) {
+            $rec->{lb_plugin_version} = $e->{version} if defined $e->{version} && $e->{version} ne '';
+            $rec->{lb_update_stufe} = $e->{stufe} + 0 if defined $e->{stufe} && $e->{stufe} =~ /\A[0-4]\z/;
+            my $v = FM::Geraeteupdate::verfuegbar_pruefen($rt, int($now), $e->{releasecfg},
+                sub { my ($s, $c) = FM::Http::get_extern($_[0]); return ($s, $c); });
+            $rec->{lb_update_verfuegbar} = $v if defined $v;
+        }
+        1;
+    };
+    FM::Spool::append($rt, $rec);
     FM::State::save($rt, $state);
     say_v('Spool: ' . FM::Spool::size($rt) . ' Byte');
 }

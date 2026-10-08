@@ -384,6 +384,47 @@
 </div>
 <div class="lb-form-help hint"><TMPL_VAR FM.HINWEIS_INTERVAL></div>
 
+<div class="lb-section-title" id="miniserver"><TMPL_VAR FM.MINISERVER_TITEL></div>
+
+<TMPL_IF NAME="MELDUNG_MINISERVER_DA">
+  <TMPL_IF NAME="MELDUNG_MINISERVER_OK">
+    <div class="lb-callout fm-popup-quelle" data-fm-ok="1"><p><TMPL_VAR MELDUNG_MINISERVER_TEXT></p></div>
+  <TMPL_ELSE>
+    <div class="lb-callout lb-callout-warning fm-popup-quelle" data-fm-ok="0"><p><TMPL_VAR MELDUNG_MINISERVER_TEXT></p></div>
+  </TMPL_IF>
+</TMPL_IF>
+
+<div class="lb-form-help hint"><TMPL_VAR FM.MINISERVER_HINWEIS></div>
+<TMPL_IF NAME="FREIGEGEBEN">
+<TMPL_IF NAME="MS_LEER">
+  <p><TMPL_VAR FM.MINISERVER_KEINE></p>
+<TMPL_ELSE>
+<form method="post" action="index.cgi" id="fm-ms-auswahl-form">
+  <input type="hidden" name="form" value="settings">
+  <input type="hidden" name="schein" value="<TMPL_VAR SCHEIN>">
+  <div class="fm-ms-liste" style="border: 1px solid var(--lb-border, #dfe3da); border-radius: var(--lb-radius-md, 8px); overflow: hidden; margin: var(--lb-space-sm, 8px) 0 var(--lb-space-md, 16px);">
+  <TMPL_LOOP NAME="MS_LISTE">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 14px;<TMPL_UNLESS NAME="__first__"> border-top: 1px solid var(--lb-border, #dfe3da);</TMPL_UNLESS><TMPL_UNLESS NAME="MS_AN"> background: var(--lb-bg-secondary, #f4f5f2);</TMPL_UNLESS>">
+      <span style="color: var(--lb-text-secondary); min-width: 2em; font-variant-numeric: tabular-nums;"><TMPL_VAR MS_NR></span>
+      <span style="flex: 1 1 12em; min-width: 0;">
+        <strong><TMPL_VAR MS_NAME ESCAPE=HTML></strong>
+        <span style="display: block; font-size: var(--lb-font-sm); color: var(--lb-text-secondary); overflow-wrap: anywhere;"><TMPL_IF NAME="MS_CLOUD"><TMPL_VAR FM.MINISERVER_CLOUD><TMPL_ELSE><TMPL_VAR MS_ADRESSE ESCAPE=HTML></TMPL_IF></span>
+      </span>
+      <label class="lb-toggle" for="fm-ms-<TMPL_VAR MS_NR>">
+        <input type="checkbox" id="fm-ms-<TMPL_VAR MS_NR>" name="ms_an" value="<TMPL_VAR MS_NR>"
+               <TMPL_IF NAME="MS_AN">checked</TMPL_IF> <TMPL_IF NAME="MS_CLOUD">disabled</TMPL_IF>>
+        <span class="lb-toggle-slider"></span>
+      </label>
+    </div>
+  </TMPL_LOOP>
+  </div>
+  <div class="lb-actions">
+    <button type="submit" class="lb-btn lb-btn-primary" name="aktion" value="miniserver_auswahl"><TMPL_VAR FM.BTN_SPEICHERN></button>
+  </div>
+</form>
+</TMPL_IF>
+</TMPL_IF>
+
 <div class="lb-section-title" id="testen"><TMPL_VAR FM.PRUEFUNG_TITEL></div>
 
 <TMPL_IF NAME="MELDUNG_TESTEN_DA">

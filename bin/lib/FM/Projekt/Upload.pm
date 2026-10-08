@@ -52,6 +52,8 @@ sub hochladen {
     }
 
     my ($st, $ans) = _post($cfg, $keyfile, '/api/projekt/init.php', $initDaten, $roh);
+    return ('abgelehnt', 'der Miniserver wird von einem anderen Gateway uebertragen')
+        if $st == 409 && defined $ans->{error} && $ans->{error} eq 'ms_konflikt';
     return ('error', "init: HTTP $st") if $st != 200;
     return ('done', 'schon bekannt') if $ans->{known};
 
