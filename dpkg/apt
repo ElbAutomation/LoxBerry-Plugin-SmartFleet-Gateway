@@ -5,6 +5,10 @@
 
 libdata-password-zxcvbn-perl
 
+libcryptx-perl
+
+libcompress-raw-lzma-perl
+
 7zip
 
 libxml-libxml-perl

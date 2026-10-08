@@ -11,7 +11,6 @@ use CGI;
 $CGI::POST_MAX = 20 * 1024 * 1024;
 use LoxBerry::System;
 use LoxBerry::Web;
-use LoxBerry::Storage;
 use HTML::Template;
 
 use lib "$LoxBerry::System::lbpbindir/lib";
@@ -22,7 +21,6 @@ use File::Path ();
 use File::Temp ();
 use POSIX ();
 use FM::B64;
-use FM::Backup::Keep;
 use FM::Paths;
 use FM::Config;
 use FM::Pin;
@@ -45,13 +43,9 @@ my $rt = FM::Paths::laufzeit($configdir);
 my $cfg       = FM::Config::load($configdir);
 
 my $stg = {
-    backup_store     => FM::Settings::get($configdir, 'backup_store',     $cfg),
     tunnel_erlaubt   => FM::Settings::get($configdir, 'tunnel_erlaubt',   $cfg),
     ms_weglassen     => FM::Settings::get($configdir, 'ms_weglassen',     $cfg),
 };
-
-my $backup_store_anzeige = $stg->{backup_store}
-    || File::Spec->catdir($lbpdatadir, 'backups');
 
 my %SEITEN = (
     status   => 'index.html',
@@ -235,7 +229,6 @@ my %MELDUNG_ORT = (
     vault_pin_zuruecksetzen => 'tresor',
     vorschlag          => 'passwort',
     setzen             => 'passwort',
-    einstellungen      => 'sicherungen',
     wiederherstellung  => 'wiederherstellung',
     messwerte          => 'messwerte',
     miniserver_auswahl => 'miniserver',
@@ -289,12 +282,6 @@ if ($aktion eq 'enroll' && !$angemeldet) {
         $angemeldet = ($cfg->{site} && $cfg->{server}) ? 1 : 0;
 
         if ($angemeldet) {
-            if (!$stg->{backup_store}) {
-                $stg->{backup_store} = File::Spec->catdir($lbpdatadir, 'backups');
-                eval { FM::Settings::save($configdir, $stg); 1 };
-            }
-
-            eval { File::Path::make_path($stg->{backup_store}); 1 };
             melde(1, $L{'FM.MELDUNG_ENROLL_OK'}, $ort);
         }
         else {
@@ -316,19 +303,8 @@ if ($aktion eq 'abmelden') {
                           : melde(0, $L{'FM.MELDUNG_ABMELDEN_FEHLER'}, $ort);
 }
 
-if ($aktion eq 'einstellungen' || $aktion eq 'messwerte') {
-    my $store = defined $POST->{store} ? $POST->{store} : '';
-    $store =~ s/\A\s+|\s+\z//g;
-
-    if (exists $POST->{store} && $store ne '' && $store !~ m{\A/}) {
-        melde(0, $L{'FM.MELDUNG_STORE_RELATIV'}, $ort);
-    }
-    else {
-        $stg->{backup_store} = $store if exists $POST->{store};
-
-        if ($stg->{backup_store}) {
-            eval { File::Path::make_path($stg->{backup_store}); 1 };
-        }
+if ($aktion eq 'messwerte') {
+    {
 
         if (!$meldung) {
             eval { FM::Settings::save($configdir, $stg); 1 }
@@ -496,32 +472,9 @@ my $sync_fehler;
 my $verbunden = ($angemeldet && defined $poll_alter && $poll_alter <= 600) ? 1 : 0;
 
 my $backup_alter;
-if ($stg->{backup_store} && -d $stg->{backup_store}) {
-    my $bester_ts;
-    if (opendir(my $sh, $stg->{backup_store})) {
-        for my $msdir (readdir $sh) {
-            next if $msdir !~ /\Ams[0-9]+\z/;
-            my $msd = File::Spec->catdir($stg->{backup_store}, $msdir);
-            next if !opendir(my $gh, $msd);
-            for my $stamp (readdir $gh) {
-                next if $stamp !~ /\A[0-9]{14}\z/;
-                my $gd   = File::Spec->catdir($msd, $stamp);
-                my $meta = File::Spec->catfile($gd, 'meta.json');
-                next if !defined FM::Backup::Keep::archiv_datei($gd);
-                next if !-f $meta;
-                open(my $fh, '<:raw', $meta) or next;
-                local $/;
-                my $raw = <$fh>;
-                close $fh;
-                my $m = eval { JSON::PP->new->decode($raw) };
-                next if !$m || !defined $m->{ts};
-                $bester_ts = $m->{ts} if !defined $bester_ts || $m->{ts} > $bester_ts;
-            }
-            closedir $gh;
-        }
-        closedir $sh;
-    }
-    $backup_alter = defined $bester_ts ? ($now - $bester_ts) : undef;
+{
+    my $st = eval { FM::State::load($rt) } || {};
+    $backup_alter = $st->{backup_ok} ? ($now - $st->{backup_ok}) : undef;
 }
 
 if (($ENV{REQUEST_METHOD} || '') eq 'POST'
@@ -569,25 +522,6 @@ $navbar{30}{URL}    = 'index.cgi?form=logs';
 $navbar{30}{active} = 1 if $form eq 'logs';
 
 $out->param(FORM => $form);
-
-if ($form eq 'settings') {
-    my $auswahl = eval {
-        LoxBerry::Storage::get_storage_html(
-            formid        => 'store',
-            label         => $L{'FM.LABEL_BACKUP_STORE'},
-            currentpath   => $backup_store_anzeige,
-            type_all      => 1,
-            custom_folder => 1,
-            readwriteonly => 1,
-            show_browse   => 1,
-            data_mini     => 1,
-        );
-    };
-    $out->param(
-        STORE_AUSWAHL    => (defined $auswahl ? $auswahl : ''),
-        STORE_AUSWAHL_DA => ((defined $auswahl && $auswahl ne '') ? 1 : 0),
-    );
-}
 
 if ($form eq 'logs') {
     my $liste = eval { LoxBerry::Web::loglist_html(PACKAGE => $lbpplugindir) };
@@ -651,7 +585,6 @@ if ($freigegeben) {
 }
 
 $out->param(
-    BACKUP_STORE     => $backup_store_anzeige,
     SERVER_INTERVAL  => $server_interval,
     PW_VORSCHLAG     => (defined $tunnel_vorschlag ? $tunnel_vorschlag
                         : ($tunnel_gesetzt ? '*********' : '')),
@@ -659,7 +592,7 @@ $out->param(
 
 if (!$meldung && ($cgi->param('mo') || '')) {
     my $wo = $cgi->param('mo');
-    my %ORTE = map { $_ => 1 } qw(verbindung fernwartung tresor passwort sicherungen wiederherstellung messwerte miniserver testen trennen);
+    my %ORTE = map { $_ => 1 } qw(verbindung fernwartung tresor passwort wiederherstellung messwerte miniserver testen trennen);
     if ($ORTE{$wo}) {
         my $text = eval { FM::B64::b64u_decode($cgi->param('ms') || '') };
         $meldung = {
@@ -691,7 +624,7 @@ if ($angemeldet) {
         HAT_ENROLLED   => ($cfg->{enrolled_at} ? 1 : 0),
         ENROLLED_AT    => zeitpunkt_text($cfg->{enrolled_at}),
         POLL_ALTER     => alter_text($poll_alter),
-        BACKUP_ALTER   => alter_text($backup_alter),
+        BACKUP_ALTER   => defined $backup_alter ? alter_text($backup_alter) : $L{'FM.BACKUP_SEIT_NEUSTART'},
         TUNNEL_OFFEN   => ($tunnel_offen ? 1 : 0),
     );
 

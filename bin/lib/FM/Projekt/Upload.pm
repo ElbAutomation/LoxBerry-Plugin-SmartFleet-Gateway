@@ -11,7 +11,28 @@ use JSON::PP;
 use MIME::Base64 qw(encode_base64);
 use FM::Sig;
 use FM::Http;
-use FM::Backup::Upload;
+
+use constant CHUNK => 1048576;
+
+sub chunk_count {
+    my ($size) = @_;
+    return 0 if !$size || $size < 1;
+    return int(($size + CHUNK() - 1) / CHUNK());
+}
+
+sub read_chunk {
+    my ($datei, $n) = @_;
+    my $sz = -s $datei;
+    return undef if !$sz;
+    my $off = $n * CHUNK();
+    return undef if $off >= $sz;
+    open my $fh, '<:raw', $datei or return undef;
+    seek $fh, $off, 0;
+    my $buf = '';
+    read $fh, $buf, CHUNK();
+    close $fh;
+    return $buf;
+}
 
 sub _post {
     my ($cfg, $keyfile, $pfad, $daten, $roh) = @_;
@@ -62,10 +83,10 @@ sub hochladen {
     }
 
     my $n      = defined $ans->{next} ? $ans->{next} + 0 : 0;
-    my $gesamt = FM::Backup::Upload::chunk_count($groesse);
+    my $gesamt = chunk_count($groesse);
 
     while ($n < $gesamt) {
-        my $stueck = FM::Backup::Upload::read_chunk($dateipfad, $n);
+        my $stueck = read_chunk($dateipfad, $n);
         return ('error', "Stueck $n nicht lesbar") if !defined $stueck;
 
         my $srv_chunk = defined $ans->{chunk} && $ans->{chunk} =~ /\A[0-9]+\z/

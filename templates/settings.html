@@ -301,36 +301,6 @@
   </form>
 </dialog>
 
-<div class="lb-section-title" id="sicherungen"><TMPL_VAR FM.SICHERUNGEN_TITEL></div>
-
-<TMPL_IF NAME="MELDUNG_SICHERUNGEN_DA">
-  <TMPL_IF NAME="MELDUNG_SICHERUNGEN_OK">
-    <div class="lb-callout fm-popup-quelle" data-fm-ok="1"><p><TMPL_VAR MELDUNG_SICHERUNGEN_TEXT></p></div>
-  <TMPL_ELSE>
-    <div class="lb-callout lb-callout-warning fm-popup-quelle" data-fm-ok="0"><p><TMPL_VAR MELDUNG_SICHERUNGEN_TEXT></p></div>
-  </TMPL_IF>
-</TMPL_IF>
-
-<form method="post" action="index.cgi">
-  <input type="hidden" name="form" value="settings">
-  <input type="hidden" name="schein" value="<TMPL_VAR SCHEIN>">
-
-  <TMPL_IF NAME="STORE_AUSWAHL_DA">
-    <TMPL_VAR STORE_AUSWAHL>
-  <TMPL_ELSE>
-    <div class="lb-form-row">
-      <label class="lb-form-label" for="store"><TMPL_VAR FM.LABEL_BACKUP_STORE></label>
-      <div class="lb-form-field">
-        <input class="lb-input" type="text" id="store" name="store" value="<TMPL_VAR BACKUP_STORE>">
-      </div>
-    </div>
-  </TMPL_IF>
-  <div class="lb-form-help hint"><TMPL_VAR FM.HINWEIS_BACKUP_STORE></div>
-  <div class="lb-actions">
-    <button type="submit" class="lb-btn lb-btn-primary" name="aktion" value="einstellungen"><TMPL_VAR FM.BTN_SPEICHERN></button>
-  </div>
-</form>
-
 <div class="lb-section-title" id="wiederherstellung"><TMPL_VAR FM.WIEDERHERSTELLUNG_TITEL></div>
 
 <TMPL_IF NAME="MELDUNG_WIEDERHERSTELLUNG_DA">

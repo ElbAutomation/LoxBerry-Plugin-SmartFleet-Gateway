@@ -29,7 +29,6 @@ use POSIX ();
 use FM::Chart;
 use FM::Element;
 use File::Spec;
-use FM::Backup::Upload;
 
 my ($dir, $verbose, $mit_log);
 my $nachpoll;
@@ -47,25 +46,6 @@ sub say_v {
 }
 sub say_err  { my $text = "@_"; print "$text\n" if $verbose; FM::Loxlog::err($log, $text); }
 sub say_deb  { my $text = "@_"; print "$text\n" if $verbose; FM::Loxlog::deb($log, $text); }
-
-my $upload_log;
-sub upload_log_oeffnen {
-    return $upload_log if $upload_log;
-    $upload_log = FM::Loxlog::start('backup', 'Uebertragung laeuft');
-    return $upload_log;
-}
-sub say_upload_v {
-    my $text = "@_";
-    print "$text\n" if $verbose;
-    FM::Loxlog::inf($upload_log, $text);
-}
-sub say_upload_deb {
-    my $text = "@_";
-    print "$text\n" if $verbose;
-    FM::Loxlog::deb($upload_log, $text);
-}
-sub say_upload_ok  { my $text = "@_"; print "$text\n" if $verbose; FM::Loxlog::ok($upload_log, $text); }
-sub say_upload_err { my $text = "@_"; print "$text\n" if $verbose; FM::Loxlog::err($upload_log, $text); }
 
 my $lock = FM::State::lock($rt);
 if (!$lock) {
@@ -193,40 +173,6 @@ if ($spool_offset) {
     }
 }
 
-my $backup_store = FM::Settings::get($dir, 'backup_store', $cfg);
-if ($backup_store) {
-    my $backup_lock = FM::State::lock($rt, 'backup');
-    if ($backup_lock) {
-        for my $msno (@{ FM::Backup::Upload::msnos($backup_store) }) {
-            next if !FM::Backup::Upload::pending($backup_store, $msno);
-            upload_log_oeffnen();
-            my ($lage, $meldung, $stuecke) = FM::Backup::Upload::send_all(
-                $cfg, $keyfile, $backup_store, $msno, \&say_upload_v, \&say_upload_deb);
-            if ($lage eq 'error') {
-                FM::Events::add($rt, 'error', 'backup',
-                    "Miniserver $msno: Uebertragung fehlgeschlagen - $meldung", msno => 0);
-                say_upload_err("Miniserver $msno: Uebertragung fehlgeschlagen - $meldung"
-                    . ($stuecke ? " (nach $stuecke Stueck(en))" : ''));
-            } elsif ($lage eq 'abgelehnt') {
-                FM::Events::add($rt, 'warn', 'backup',
-                    "Miniserver $msno: nicht hochgeladen - $meldung (in den Einstellungen des Plugins abwaehlen)", msno => 0);
-                say_upload_v("Miniserver $msno: nicht hochgeladen - $meldung");
-            } elsif ($lage eq 'done') {
-                FM::Events::add($rt, 'info', 'backup',
-                    "Miniserver $msno: Backup erfolgreich hochgeladen"
-                        . ($meldung eq 'schon bekannt' ? ' (unveraendert, bereits bekannt)' : ''),
-                    msno => 0);
-                say_upload_ok(sprintf('Miniserver %d: Nachholung abgeschlossen (%d Stueck)',
-                              $msno, $stuecke));
-            }
-        }
-        close($backup_lock);
-    }
-    else {
-        say_v('Backup-Sperre belegt - eine Uebertragung laeuft bereits, hier nichts nachzuholen.');
-    }
-}
-
 my $fernwartung_lief = 0;
 
 my %HANDLER = (
@@ -234,19 +180,15 @@ my %HANDLER = (
 
     backup_now => sub {
         my ($payload) = @_;
-        my $store = FM::Settings::get($dir, 'backup_store', $cfg);
-        return (0, 'keine Ablage konfiguriert') if !$store;
-
         my $msno = (ref($payload) eq 'HASH' && defined $payload->{msno}
                     && $payload->{msno} =~ /\A[0-9]{1,10}\z/)
                  ? $payload->{msno} + 0 : undef;
 
-        my @arg = ($^X, "$Bin/fm_backup.pl",
-                   '--dir', $dir, '--store', $store, '--force');
+        my @arg = ($^X, "$Bin/fm_backup.pl", '--dir', $dir, '--force');
         push @arg, ('--msno', $msno) if defined $msno;
 
         my $rc = system(@arg);
-        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Backup erzeugt' : "Laeufer meldete $rc");
+        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Backup gesichert' : "Laeufer meldete $rc");
     },
 
     plugin_update => sub {
@@ -340,7 +282,6 @@ FM::State::save($rt, $frisch);
 print 'Sync abgeschlossen, Sequenz ' . $state->{seq} . "\n" if $verbose;
 FM::Loxlog::ok($log, 'Sync abgeschlossen, Sequenz ' . $state->{seq});
 FM::Loxlog::ende($log);
-FM::Loxlog::ende($upload_log);
 
 if ($fernwartung_lief && !$nachpoll) {
     close($lock);

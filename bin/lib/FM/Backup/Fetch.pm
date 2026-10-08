@@ -42,11 +42,12 @@ sub parse_list {
     for my $z (split /\r?\n/, $text) {
         $z =~ s/\s+$//;
         next if $z !~ /\S/;
-        my ($typ, $size, $name) =
-            $z =~ /^(\S+)\s+(\d+)\s+\w{3}\s+\d+\s+[\d:]+\s+(.+)$/;
+        my ($typ, $size, $datum, $name) =
+            $z =~ /^(\S+)\s+(\d+)\s+(\w{3}\s+\d+\s+[\d:]+)\s+(.+)$/;
         next if !defined $name;
+        $datum =~ s/\s+/ /g;
         next if $name eq '.' || $name eq '..';
-        push @out, { name => $name, size => $size + 0,
+        push @out, { name => $name, size => $size + 0, datum => $datum,
                      dir => ($typ eq 'd' ? 1 : 0) };
     }
     return \@out;
@@ -90,7 +91,7 @@ sub walk {
                     $voll_abbruch = 1;
                     return;
                 }
-                push @dateien, { path => $voll, size => $e->{size} };
+                push @dateien, { path => $voll, size => $e->{size}, datum => $e->{datum} };
             }
         }
     };

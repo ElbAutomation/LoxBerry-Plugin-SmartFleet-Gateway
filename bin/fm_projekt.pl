@@ -65,6 +65,8 @@ sub voll_herunterladen_und_entpacken {
     return (0, "$datei nicht holbar") if !$got;
 
     my ($eok, $eziel_oder_fehler) = FM::Loxplan::entpacke($rohziel, $arbeitsdir);
+    unlink $rohziel;
+    remove_tree(File::Spec->catdir($arbeitsdir, 'entpackt'));
     return (0, "Entpacken fehlgeschlagen - $eziel_oder_fehler") if !$eok;
 
     my $loxone    = $eziel_oder_fehler;

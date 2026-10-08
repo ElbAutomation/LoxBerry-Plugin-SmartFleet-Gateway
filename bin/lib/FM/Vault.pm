@@ -130,10 +130,15 @@ sub _sperre {
 
 sub _speichern {
     my ($pfad, $daten) = @_;
+    my $neu = JSON::PP->new->ascii->canonical->encode($daten);
+    if (-f $pfad && ((stat _)[2] & 07777) == 0600) {
+        my $bisher = eval { _slurp($pfad) };
+        return 1 if defined $bisher && $bisher eq $neu;
+    }
     my $alt = umask(0077);
     my $tmp = "$pfad.tmp";
     my $ok = eval {
-        _spew($tmp, JSON::PP->new->ascii->canonical->encode($daten));
+        _spew($tmp, $neu);
         chmod(0600, $tmp) == 1 or die "FM::Vault: chmod $tmp: $!\n";
         rename($tmp, $pfad) or die "FM::Vault: rename $pfad: $!\n";
         1;

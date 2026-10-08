@@ -142,7 +142,7 @@ sub entpacke {
     if (-f $roh_loxone) {
         require File::Copy;
         return (0, "konnte $roh_loxone nicht uebernehmen")
-            if !File::Copy::copy($roh_loxone, $ziel);
+            if !File::Copy::move($roh_loxone, $ziel);
         return (1, $ziel);
     }
 
