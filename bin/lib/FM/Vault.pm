@@ -14,6 +14,7 @@ use Digest::SHA qw(hmac_sha256);
 use MIME::Base64 qw(encode_base64);
 use FM::B64;
 use FM::Keys;
+use FM::Paths;
 
 use constant INFO        => 'smartfleet-vault-v1';
 use constant SPKI_X25519 => "\x30\x2a\x30\x05\x06\x03\x2b\x65\x6e\x03\x21\x00";
@@ -119,7 +120,7 @@ sub _laden {
 
 sub _sperre {
     my ($dir) = @_;
-    my $lf = _pfad($dir, 'vault.lock');
+    my $lf = _pfad(FM::Paths::laufzeit($dir), 'vault.lock');
     my $alt = umask(0077);
     my $ok = open(my $fh, '>>', $lf);
     umask($alt);
