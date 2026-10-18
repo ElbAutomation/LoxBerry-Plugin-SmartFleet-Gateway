@@ -8,6 +8,7 @@ package FM::Events;
 use strict;
 use warnings;
 use JSON::PP;
+use FM::Meldung;
 use File::Spec;
 use File::Path qw(make_path);
 use Fcntl qw(:flock);
@@ -79,6 +80,12 @@ sub add {
         return 0 if !defined $src  || $src eq '';
         return 0 if !defined $msg  || $msg eq '';
 
+        my ($code, $args);
+        if (FM::Meldung::ist($msg)) {
+            $code = $msg->code;
+            $args = $msg->args_json;
+            $msg  = $msg->text;
+        }
         $msg = substr($msg, 0, MAX_MSG_LEN) if length($msg) > MAX_MSG_LEN;
         my $msno   = $opt{msno};
         my $room   = $opt{room};
@@ -127,6 +134,8 @@ sub add {
             $rec->{msno}   = $msno   if defined $msno;
             $rec->{room}   = $room   if defined $room;
             $rec->{detail} = $detail if defined $detail;
+            $rec->{code}   = $code   if defined $code;
+            $rec->{args}   = $args   if $args && @$args;
             push @out, JSON::PP->new->canonical->utf8->encode($rec);
         }
 

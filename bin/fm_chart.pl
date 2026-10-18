@@ -20,6 +20,7 @@ use FM::Loxlog;
 use FM::Miniserver;
 use FM::Settings;
 use FM::Events;
+use FM::Meldung;
 use FM::Spool;
 use FM::Chart;
 use FM::Element;
@@ -143,13 +144,13 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
     push @werte, map { { msno => $msno + 0, b => $_->{b}, o => $_->{o}, v => $_->{v} } } @$w;
     $lesbar = 0 if !@$w;
     if ($fehlt && !$cs->{fehlt_gemeldet}) {
-        FM::Events::add($rt, 'warn', 'chart', "Miniserver $msno: $fehlt Chart-Werte nicht lesbar", msno => 0);
+        FM::Events::add($rt, 'warn', 'chart', FM::Meldung->new('ms', $msno, FM::Meldung->new('chart_nicht_lesbar', $fehlt)), msno => 0);
         $cs->{fehlt_gemeldet} = 1;
     } elsif (!$fehlt) {
         delete $cs->{fehlt_gemeldet};
     }
     if (!$voll && !$cs->{budget_gemeldet}) {
-        FM::Events::add($rt, 'warn', 'chart', "Miniserver $msno: Zeitbudget erreicht, Chart-Werte unvollstaendig", msno => 0);
+        FM::Events::add($rt, 'warn', 'chart', FM::Meldung->new('ms', $msno, FM::Meldung->new('chart_zeitbudget')), msno => 0);
         $cs->{budget_gemeldet} = 1;
     } elsif ($voll) {
         delete $cs->{budget_gemeldet};

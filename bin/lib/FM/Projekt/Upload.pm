@@ -11,6 +11,7 @@ use JSON::PP;
 use MIME::Base64 qw(encode_base64);
 use FM::Sig;
 use FM::Http;
+use FM::Meldung;
 
 use constant CHUNK => 1048576;
 
@@ -73,13 +74,13 @@ sub hochladen {
     }
 
     my ($st, $ans) = _post($cfg, $keyfile, '/api/projekt/init.php', $initDaten, $roh);
-    return ('abgelehnt', 'der Miniserver wird von einem anderen Gateway uebertragen')
+    return ('abgelehnt', FM::Meldung->new('grund_anderes_gateway'))
         if $st == 409 && defined $ans->{error} && $ans->{error} eq 'ms_konflikt';
     return ('error', "init: HTTP $st") if $st != 200;
     return ('done', 'schon bekannt') if $ans->{known};
 
     if (!defined $dateipfad) {
-        return ('retry', 'Server kennt die zwischengespeicherte Version nicht mehr - eine echte Datei wird gebraucht');
+        return ('retry', FM::Meldung->new('grund_version_unbekannt'));
     }
 
     my $n      = defined $ans->{next} ? $ans->{next} + 0 : 0;
@@ -87,7 +88,7 @@ sub hochladen {
 
     while ($n < $gesamt) {
         my $stueck = read_chunk($dateipfad, $n);
-        return ('error', "Stueck $n nicht lesbar") if !defined $stueck;
+        return ('error', FM::Meldung->new('grund_stueck_nicht_lesbar', $n)) if !defined $stueck;
 
         my $srv_chunk = defined $ans->{chunk} && $ans->{chunk} =~ /\A[0-9]+\z/
                       ? $ans->{chunk} + 0 : undef;

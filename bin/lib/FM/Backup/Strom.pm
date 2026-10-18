@@ -8,6 +8,7 @@ use strict;
 use warnings;
 use JSON::PP;
 use MIME::Base64 qw(encode_base64);
+use FM::Meldung;
 use Digest::SHA qw(sha256_hex);
 use FM::Sig;
 use FM::Http;
@@ -60,8 +61,8 @@ sub senden {
     my @d = @{ $a{dateien} || [] };
     my $fehler = sub { return { lage => 'error', meldung => $_[0], files => 0, fehlend => [], stuecke => $_[1] || 0 } };
 
-    return $fehler->('keine Dateien') if !@d;
-    return $fehler->('kein Passwort - Verschluesselung nicht moeglich')
+    return $fehler->(FM::Meldung->new('grund_keine_dateien')) if !@d;
+    return $fehler->(FM::Meldung->new('grund_kein_passwort'))
         if !defined $a{passwort} || $a{passwort} eq '';
     my $summe = 0;
     $summe += $_->{size} for @d;
@@ -85,11 +86,11 @@ sub senden {
     $init->{loxname} = $a{loxname} if defined $a{loxname} && $a{loxname} ne '';
     my ($st, $ans) = $mit_wdh->('/api/backup/init.php', $init);
     if ($st == 409 && ($ans->{error} // '') eq 'ms_konflikt') {
-        return { lage => 'abgelehnt', meldung => 'der Miniserver wird von einem anderen Gateway uebertragen',
+        return { lage => 'abgelehnt', meldung => FM::Meldung->new('grund_anderes_gateway'),
                  files => 0, fehlend => [], stuecke => 0 };
     }
     if ($st == 507) {
-        return { lage => 'voll', meldung => 'Speicherplatz des Standorts erschoepft', files => 0, fehlend => [], stuecke => 0 };
+        return { lage => 'voll', meldung => FM::Meldung->new('grund_speicher_voll'), files => 0, fehlend => [], stuecke => 0 };
     }
     return $fehler->("init: HTTP $st" . (defined $ans->{message} ? " - $ans->{message}" : '')) if $st != 200;
     if ($ans->{known}) {
@@ -106,11 +107,11 @@ sub senden {
                                    { upload => $upload, n => $nr, data => encode_base64($puf, '') });
         if ($cs == 507) {
             $voll  = 1;
-            $grund = "Speicherplatz des Standorts erschoepft (nach $nr Stueck(en))";
+            $grund = FM::Meldung->new('grund_speicher_voll_stueck', $nr);
             die "$grund\n";
         }
         if (!($cs == 200 || ($cs == 409 && defined $ca->{next} && $ca->{next} == $nr + 1))) {
-            $grund = "Uebertragung fehlgeschlagen (Stueck $nr, HTTP $cs)";
+            $grund = FM::Meldung->new('grund_uebertragung_stueck', $nr, $cs);
             die "$grund\n";
         }
         $nr++;
@@ -156,7 +157,7 @@ sub senden {
             my ($sha, $g) = $z->datei_ende;
             push @erfasst, { path => $e->{fp_pfad} // '/' . $e->{name}, size => $g, sha256 => $sha } if !$e->{ohne_fp};
         }
-        die "keine einzige Datei holbar\n" if !@erfasst;
+        if (!@erfasst) { $grund = FM::Meldung->new('grund_keine_datei_holbar'); die "$grund\n"; }
         my ($kopf, $groesse) = $z->ende;
         $stueck_senden->();
         my ($cs, $ca) = $mit_wdh->('/api/backup/complete.php', {
@@ -164,14 +165,15 @@ sub senden {
             sha256_tail => $tail->hexdigest, fingerprint => FM::Backup::Pack::fingerprint(\@erfasst, 1),
             files => scalar(@erfasst), vollstaendig => (@fehlend ? 0 : 1),
         });
-        die "Abschluss abgelehnt (HTTP $cs)\n" if $cs != 200;
+        if ($cs != 200) { $grund = FM::Meldung->new('grund_abschluss_abgelehnt', $cs); die "$grund\n"; }
         +{ lage => ($ca->{known} ? 'known' : 'done'), meldung => ($ca->{known} ? 'Inhalt bekannt' : 'hochgeladen'),
           files => scalar(@erfasst), fehlend => \@fehlend, size => $groesse, stuecke => $nr };
     };
     if (!$ergebnis) {
         unlink $offen if defined $offen;
-        my $m = $grund // $@ // 'unbekannter Fehler';
-        $m =~ s/\s+\z//;
+        my $m = $grund // $@;
+        $m = FM::Meldung->new('grund_unbekannt') if !defined $m || "$m" eq '';
+        $m =~ s/\s+\z// if !ref $m;
         my $r = $fehler->($m, $nr);
         $r->{lage} = 'voll' if $voll;
         $r->{fehlend} = \@fehlend;

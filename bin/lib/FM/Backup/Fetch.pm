@@ -8,6 +8,7 @@ package FM::Backup::Fetch;
 use strict;
 use warnings;
 use MIME::Base64 qw(encode_base64);
+use FM::Meldung;
 use HTTP::Tiny;
 use FM::Backup::Catalog;
 
@@ -71,7 +72,7 @@ sub walk {
         $sagen->("Verzeichnis $pfad");
         my ($ok, $body) = _get($base, $cred, "/dev/fslist$pfad", $sagen);
         if (!$ok) {
-            push @fehler, "Auflisten fehlgeschlagen: $pfad";
+            push @fehler, FM::Meldung->new('grund_auflisten', $pfad);
             return;
         }
 
@@ -85,9 +86,7 @@ sub walk {
             } else {
                 $summe += $e->{size};
                 if ($summe > $grenze) {
-                    push @fehler, sprintf(
-                        'Groessengrenze ueberschritten: %d von %d Byte',
-                        $summe, $grenze);
+                    push @fehler, FM::Meldung->new('grund_groesse', $summe, $grenze);
                     $voll_abbruch = 1;
                     return;
                 }

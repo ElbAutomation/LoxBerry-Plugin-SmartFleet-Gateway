@@ -16,6 +16,7 @@ use FM::Paths;
 use FM::Config;
 use FM::Loxlog;
 use FM::Events;
+use FM::Meldung;
 use FM::Healthcheck;
 
 my ($dir, $lbhomedir, $verbose);
@@ -48,7 +49,7 @@ my $hc = $lbhomedir ? File::Spec->catfile($lbhomedir, 'sbin', 'healthcheck.pl') 
 if (!$hc || !-x $hc) {
     say_err('healthcheck.pl nicht gefunden oder nicht ausfuehrbar'
         . (defined $hc ? " ($hc)" : ' (kein --lbhomedir angegeben)'));
-    FM::Events::add($rt, 'error', 'healthcheck', 'LoxBerry-Healthcheck nicht verfuegbar', msno => 0);
+    FM::Events::add($rt, 'error', 'healthcheck', FM::Meldung->new('healthcheck_nicht_verfuegbar'), msno => 0);
     FM::Loxlog::ende($log);
     exit 1;
 }
@@ -58,7 +59,7 @@ my $json;
 my $gestartet = open(my $fh, '-|', $^X, $hc, 'action=check', 'output=json');
 if (!$gestartet) {
     say_err("healthcheck.pl liess sich nicht starten: $!");
-    FM::Events::add($rt, 'error', 'healthcheck', 'LoxBerry-Healthcheck liess sich nicht starten', msno => 0);
+    FM::Events::add($rt, 'error', 'healthcheck', FM::Meldung->new('healthcheck_nicht_gestartet'), msno => 0);
     FM::Loxlog::ende($log);
     exit 1;
 }
@@ -74,8 +75,7 @@ my @events = FM::Healthcheck::events($json // '');
 
 if (!@events && $rc != 0) {
     say_err("healthcheck.pl beendete sich mit Exitcode $rc, keine auswertbare Antwort");
-    FM::Events::add($rt, 'error', 'healthcheck',
-        "LoxBerry-Healthcheck fehlgeschlagen (Exitcode $rc)", msno => 0);
+    FM::Events::add($rt, 'error', 'healthcheck', FM::Meldung->new('healthcheck_fehlgeschlagen', $rc), msno => 0);
     FM::Loxlog::ende($log);
     exit 1;
 }

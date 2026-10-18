@@ -8,6 +8,7 @@ package FM::Jobs;
 use strict;
 use warnings;
 use Exporter 'import';
+use FM::Meldung;
 
 our @EXPORT_OK = qw(run_jobs);
 
@@ -21,17 +22,30 @@ sub run_jobs {
         my $h    = $handlers->{$type};
         if (!$h) {
             $say_v->("Unbekannter Auftragstyp '$type' - wird abgelehnt.");
-            push @acks, { job => $job->{id}, status => 'failed', result => 'unbekannter Auftragstyp' };
+            push @acks, _ack($job->{id}, 0, FM::Meldung->new('job_unbekannt'));
             next;
         }
         my ($ok, $result) = eval { $h->($job) };
         if ($@) {
-            ($ok, $result) = (0, "Ausnahme: $@");
+            my $e = "$@";
+            $e =~ s/\s+\z//;
+            ($ok, $result) = (0, FM::Meldung->new('job_ausnahme', $e));
         }
-        push @acks, { job => $job->{id}, status => ($ok ? 'ok' : 'failed'), result => "$result" };
+        push @acks, _ack($job->{id}, $ok, $result);
         $say_v->("Auftrag $job->{id} ($type): " . ($ok ? 'ok' : 'fehlgeschlagen'));
     }
     return \@acks;
+}
+
+sub _ack {
+    my ($id, $ok, $result) = @_;
+    my $a = { job => $id, status => ($ok ? 'ok' : 'failed'), result => (defined $result ? "$result" : '') };
+    if (FM::Meldung::ist($result)) {
+        $a->{code} = $result->code;
+        my $args = $result->args_json;
+        $a->{args} = $args if @$args;
+    }
+    return $a;
 }
 
 1;

@@ -60,11 +60,12 @@ sub start {
     return $log;
 }
 
-sub inf  { my ($l, $t) = @_; $l->INF($t)  if $l; return; }
-sub ok   { my ($l, $t) = @_; $l->OK($t)   if $l; return; }
-sub warn { my ($l, $t) = @_; $l->WARN($t) if $l; return; }
-sub err  { my ($l, $t) = @_; $l->ERR($t)  if $l; return; }
-sub deb  { my ($l, $t) = @_; $l->DEB($t)  if $l; return; }
+sub _b   { my ($t) = @_; $t = "$t" if ref $t; utf8::encode($t) if defined $t && utf8::is_utf8($t); return $t; }
+sub inf  { my ($l, $t) = @_; $l->INF(_b($t))  if $l; return; }
+sub ok   { my ($l, $t) = @_; $l->OK(_b($t))   if $l; return; }
+sub warn { my ($l, $t) = @_; $l->WARN(_b($t)) if $l; return; }
+sub err  { my ($l, $t) = @_; $l->ERR(_b($t))  if $l; return; }
+sub deb  { my ($l, $t) = @_; $l->DEB(_b($t))  if $l; return; }
 
 sub ende {
     my ($l) = @_;

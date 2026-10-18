@@ -23,6 +23,7 @@ use FM::Selftest;
 use FM::Sync;
 use FM::Spool;
 use FM::Events;
+use FM::Meldung;
 use FM::Vault;
 use FM::Geraeteupdate;
 use POSIX ();
@@ -155,7 +156,7 @@ if (ref($ans->{element_pruefung}) eq 'ARRAY') {
 }
 
 for my $ev (FM::Vault::antwort_verarbeiten($dir, $cfg->{site}, $ans, \%body)) {
-    FM::Events::add($rt, 'warn', 'vault', "$ev->[0]: $ev->[1]");
+    FM::Events::add($rt, 'warn', 'vault', FM::Meldung->new('kennung', $ev->[0], $ev->[1]));
 }
 
 $state->{pending_acks} = [];
@@ -176,7 +177,7 @@ if ($spool_offset) {
 my $fernwartung_lief = 0;
 
 my %HANDLER = (
-    ping => sub { return (1, 'pong'); },
+    ping => sub { return (1, FM::Meldung->new('job_pong')); },
 
     backup_now => sub {
         my ($job) = @_;
@@ -189,12 +190,12 @@ my %HANDLER = (
         push @arg, ('--msno', $msno) if defined $msno;
 
         my $rc = system(@arg);
-        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Backup gesichert' : "Laeufer meldete $rc");
+        return ($rc == 0 ? 1 : 0, $rc == 0 ? FM::Meldung->new('job_backup_gesichert') : FM::Meldung->new('job_backup_fehler', $rc));
     },
 
     plugin_update => sub {
         my $eigen = FM::Geraeteupdate::eigene();
-        return (0, 'Plugin-Daten nicht lesbar') if !$eigen;
+        return (0, FM::Meldung->new('job_plugin_daten')) if !$eigen;
         my ($st, $text) = FM::Http::get_extern(defined $eigen->{releasecfg} ? $eigen->{releasecfg} : '');
         my $rel = (defined $st && $st == 200) ? FM::Geraeteupdate::release_cfg($text) : undef;
         my $tmp = File::Spec->catdir($rt, 'update');
@@ -226,18 +227,17 @@ my %HANDLER = (
     projekt_neu => sub {
         my ($job) = @_;
         my $f = File::Spec->catfile($rt, 'projekt_neu.req');
-        open my $fh, '>', $f or return (0, 'Anforderung nicht ablegbar');
+        open my $fh, '>', $f or return (0, FM::Meldung->new('job_nicht_ablegbar'));
         close $fh;
-        return (1, 'Projektdatei wird beim naechsten Lauf neu abgerufen');
+        return (1, FM::Meldung->new('job_projekt_neu'));
     },
     vault_resend => sub {
         my ($job) = @_;
         my $payload = (ref($job) eq 'HASH' && ref($job->{payload}) eq 'HASH') ? $job->{payload} : {};
         my $neu = $payload->{neu} ? 1 : 0;
         my $r = FM::Vault::neu_anfordern($dir, $neu);
-        return (0, 'Uebermittlung an den Tresor ist nicht aktiviert') if $r ne 'ok';
-        return (1, $neu ? 'Neuer Tresor: Schluessel wird uebernommen, Passwoerter werden neu uebertragen'
-                        : 'Passwoerter werden neu uebertragen');
+        return (0, FM::Meldung->new('job_tresor_aus')) if $r ne 'ok';
+        return (1, FM::Meldung->new($neu ? 'job_tresor_neu' : 'job_tresor_erneut'));
     },
 
     tunnel_open => sub {
@@ -252,19 +252,19 @@ my %HANDLER = (
             || !defined $ts      || $ts !~ /\A[0-9]+\z/
             || !defined $antwort || $antwort eq '') {
             FM::Events::add($rt, 'error', 'tunnel_error', 'auftrag_unvollstaendig');
-            return (0, 'Auftrag unvollstaendig');
+            return (0, FM::Meldung->new('job_unvollstaendig'));
         }
 
         my @arg = ($^X, "$Bin/fm_tunnel.pl", '--dir', $dir, '--start',
                    '--nonce', $nonce, '--ts', $ts, '--antwort', $antwort);
         push @arg, '--dauerhaft' if defined $payload->{dauer} && $payload->{dauer} eq 'dauerhaft';
         my $rc = system(@arg);
-        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Tunnel gestartet' : 'Tunnel nicht gestartet');
+        return ($rc == 0 ? 1 : 0, FM::Meldung->new($rc == 0 ? 'job_tunnel_gestartet' : 'job_tunnel_nicht_gestartet'));
     },
     tunnel_close => sub {
         $fernwartung_lief = 1;
         my $rc = system($^X, "$Bin/fm_tunnel.pl", '--dir', $dir, '--stop');
-        return ($rc == 0 ? 1 : 0, $rc == 0 ? 'Tunnel beendet' : 'Tunnel nicht beendet');
+        return ($rc == 0 ? 1 : 0, FM::Meldung->new($rc == 0 ? 'job_tunnel_beendet' : 'job_tunnel_nicht_beendet'));
     },
 );
 

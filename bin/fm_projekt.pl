@@ -24,6 +24,7 @@ use FM::Backup::Pack;
 use FM::Loxplan;
 use FM::Projekt::Upload;
 use FM::Events;
+use FM::Meldung;
 
 use constant MAX_PROJEKT_GROESSE => 67108864;
 
@@ -62,12 +63,12 @@ sub voll_herunterladen_und_entpacken {
     my $rohziel = File::Spec->catfile($arbeitsdir, $datei);
     my ($got, undef) = FM::Backup::Fetch::get_to_file($base, $cred, "/prog/$datei", $rohziel,
         sub { say_deb("Miniserver $msno: $_[0]") });
-    return (0, "$datei nicht holbar") if !$got;
+    return (0, FM::Meldung->new('grund_nicht_holbar', $datei)) if !$got;
 
     my ($eok, $eziel_oder_fehler) = FM::Loxplan::entpacke($rohziel, $arbeitsdir);
     unlink $rohziel;
     remove_tree(File::Spec->catdir($arbeitsdir, 'entpackt'));
-    return (0, "Entpacken fehlgeschlagen - $eziel_oder_fehler") if !$eok;
+    return (0, FM::Meldung->new('grund_entpacken', $eziel_oder_fehler)) if !$eok;
 
     my $loxone    = $eziel_oder_fehler;
     my $groesse   = -s $loxone;
@@ -162,7 +163,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
     my ($lok, $lbody) = FM::Miniserver::get($base, $cred, '/dev/fslist/prog',
         sub { say_deb("Miniserver $msno: $_[0]") });
     if (!$lok) {
-        FM::Events::add($rt, 'warn', 'projekt', "Miniserver $msno: Programmverzeichnis nicht auflistbar", msno => 0);
+        FM::Events::add($rt, 'warn', 'projekt', FM::Meldung->new('ms', $msno, FM::Meldung->new('projekt_verzeichnis')), msno => 0);
         say_warn("Miniserver $msno: /prog nicht auflistbar");
         $fehler_gesamt++;
         next;
@@ -170,7 +171,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
     my $eintraege = FM::Backup::Fetch::parse_list($lbody);
     my $datei = FM::Loxplan::waehle_projektdatei($eintraege);
     if (!defined $datei) {
-        FM::Events::add($rt, 'warn', 'projekt', "Miniserver $msno: kein Programmstand gefunden", msno => 0);
+        FM::Events::add($rt, 'warn', 'projekt', FM::Meldung->new('ms', $msno, FM::Meldung->new('projekt_kein_stand')), msno => 0);
         say_warn("Miniserver $msno: kein Programmstand gefunden");
         $fehler_gesamt++;
         next;
@@ -178,8 +179,8 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
 
     my ($groesse_gefunden) = map { $_->{size} } grep { $_->{name} eq $datei } @$eintraege;
     if (defined $groesse_gefunden && $groesse_gefunden > MAX_PROJEKT_GROESSE) {
-        my $meldung = sprintf('Miniserver %d: Programmdatei zu gross (%.1f MB, Grenze %.1f MB)',
-            $msno, $groesse_gefunden / 1048576, MAX_PROJEKT_GROESSE / 1048576);
+        my $meldung = FM::Meldung->new('ms', $msno, FM::Meldung->new('projekt_zu_gross',
+            sprintf('%.1f', $groesse_gefunden / 1048576), sprintf('%.1f', MAX_PROJEKT_GROESSE / 1048576)));
         FM::Events::add($rt, 'warn', 'projekt', $meldung, msno => 0);
         say_warn($meldung);
         $fehler_gesamt++;
@@ -201,7 +202,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
     } else {
         my ($ok, @rest) = voll_herunterladen_und_entpacken($base, $cred, $msno, $datei, $arbeitsdir);
         if (!$ok) {
-            FM::Events::add($rt, 'warn', 'projekt', "Miniserver $msno: $rest[0]", msno => 0);
+            FM::Events::add($rt, 'warn', 'projekt', FM::Meldung->new('ms', $msno, $rest[0]), msno => 0);
             say_warn("Miniserver $msno: $rest[0]");
             $fehler_gesamt++;
             remove_tree($arbeitsdir);
@@ -236,7 +237,8 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
         }
 
         if ($lage eq 'error') {
-            FM::Events::add($rt, 'error', 'projekt', "Miniserver $msno: Uebertragung fehlgeschlagen - $meldung", msno => 0);
+            FM::Events::add($rt, 'error', 'projekt',
+                FM::Meldung->new('ms', $msno, FM::Meldung->new('projekt_uebertragung', $meldung)), msno => 0);
             say_err("Miniserver $msno: Uebertragung fehlgeschlagen - $meldung");
             $fehler_gesamt++;
         } elsif ($lage eq 'abgelehnt') {
@@ -247,7 +249,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
             $state->{projekt}{$msno}{erzwungen_ts} = $marker_mtime if $erzwingen;
             projekt_speichern();
             FM::Events::add($rt, 'warn', 'projekt',
-                "Miniserver $msno: nicht hochgeladen - $meldung (in den Einstellungen des Plugins abwaehlen)", msno => 0);
+                FM::Meldung->new('nicht_hochgeladen_abwaehlen', FM::Meldung->new('wer_ms', $msno), $meldung), msno => 0);
             say_v("Miniserver $msno: nicht hochgeladen - $meldung");
         } else {
             $state->{projekt}{$msno}{app_version} = $app_version;
@@ -256,7 +258,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
             $state->{projekt}{$msno}{groesse}     = $groesse;
             $state->{projekt}{$msno}{erzwungen_ts} = $marker_mtime if $erzwingen;
             projekt_speichern();
-            FM::Events::add($rt, 'info', 'projekt', "Miniserver $msno: Programm aktualisiert", msno => 0);
+            FM::Events::add($rt, 'info', 'projekt', FM::Meldung->new('ms', $msno, FM::Meldung->new('projekt_aktualisiert')), msno => 0);
             say_ok("Miniserver $msno: Programm hochgeladen ($groesse Byte)");
         }
     }

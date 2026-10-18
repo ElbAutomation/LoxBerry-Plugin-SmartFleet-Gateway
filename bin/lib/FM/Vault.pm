@@ -495,9 +495,11 @@ sub antwort_verarbeiten {
         if (ref($ans->{vault}) eq 'HASH' && optin_gueltig($dir)) {
             my $vs = info_pruefen($dir, $site, $ans->{vault});
             if ($vs eq 'identitaet_geaendert' || $vs eq 'signatur_ungueltig') {
-                push @ev, ['vault_' . $vs, 'Der Tresorschluessel des Servers wurde abgelehnt.'];
+                require FM::Meldung;
+                push @ev, ['vault_' . $vs, FM::Meldung->new('tresor_abgelehnt')];
             } elsif ($vs eq 'pin_defekt') {
-                push @ev, ['vault_pin_defekt', 'Die lokale Tresor-Pinndatei ist unlesbar - es wird nichts gesendet.'];
+                require FM::Meldung;
+                push @ev, ['vault_pin_defekt', FM::Meldung->new('tresor_pin_defekt')];
             }
         }
         1;

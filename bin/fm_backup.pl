@@ -27,6 +27,7 @@ use FM::Backup::Pack;
 use FM::Backup::Strom;
 use FM::Backup::Strom7z;
 use FM::Events;
+use FM::Meldung;
 
 my ($dir, $msno_wahl, $force, $dry, $verbose);
 GetOptions(
@@ -117,8 +118,7 @@ if (!%miniservers) {
 }
 
 if (!FM::Backup::Strom7z::verfuegbar()) {
-    FM::Events::add($rt, 'error', 'backup',
-        'Paket libcryptx-perl oder libcompress-raw-lzma-perl fehlt - es wird NICHT unverschluesselt gesichert', msno => 0);
+    FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('backup_pakete_fehlen'), msno => 0);
     log_oeffnen();
     say_err('libcryptx-perl oder libcompress-raw-lzma-perl fehlt - keine Sicherung ohne Verschluesselung.');
     exit 1;
@@ -140,28 +140,27 @@ sub melden {
     my ($wer, $r) = @_;
     my $l = $r->{lage};
     if ($l eq 'error') {
-        FM::Events::add($rt, 'error', 'backup', "$wer: Backup fehlgeschlagen - $r->{meldung}", msno => 0);
+        FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('backup_fehlgeschlagen', $wer, $r->{meldung}), msno => 0);
         say_err("$wer: Backup fehlgeschlagen - $r->{meldung}"
             . ($r->{stuecke} ? " (nach $r->{stuecke} Stueck(en))" : ''));
         $fehler_gesamt++;
     } elsif ($l eq 'abgelehnt') {
-        FM::Events::add($rt, 'warn', 'backup',
-            "$wer: nicht hochgeladen - $r->{meldung} (in den Einstellungen des Plugins abwaehlen)", msno => 0);
+        FM::Events::add($rt, 'warn', 'backup', FM::Meldung->new('nicht_hochgeladen_abwaehlen', $wer, $r->{meldung}), msno => 0);
         say_warn("$wer: nicht hochgeladen - $r->{meldung}");
     } elsif ($l eq 'voll') {
-        FM::Events::add($rt, 'warn', 'backup', "$wer: nicht hochgeladen - $r->{meldung}", msno => 0);
+        FM::Events::add($rt, 'warn', 'backup', FM::Meldung->new('nicht_hochgeladen', $wer, $r->{meldung}), msno => 0);
         say_warn("$wer: nicht hochgeladen - $r->{meldung}");
     } elsif ($l eq 'known') {
         say_ok("$wer: unveraendert ($r->{meldung}) - keine neue Generation");
         $erfolg++;
     } else {
-        FM::Events::add($rt, 'info', 'backup', "$wer: Backup erfolgreich hochgeladen", msno => 0);
+        FM::Events::add($rt, 'info', 'backup', FM::Meldung->new('backup_erfolgreich', $wer), msno => 0);
         say_ok(sprintf('%s: Backup hochgeladen, %.2f MB, %d Dateien, %d Stueck(e)',
                        $wer, ($r->{size} || 0) / 1048576, $r->{files}, $r->{stuecke}));
         $erfolg++;
     }
     if (@{ $r->{fehlend} || [] } && $l ne 'error') {
-        my $text = sprintf('%s: %d von %d Dateien nicht gesichert', $wer,
+        my $text = FM::Meldung->new('backup_unvollstaendig', $wer,
                            scalar @{ $r->{fehlend} }, scalar(@{ $r->{fehlend} }) + $r->{files});
         FM::Events::add($rt, 'warn', 'backup', $text, msno => 0);
         say_warn($text);
@@ -197,9 +196,7 @@ if (!defined $msno_wahl || $msno_wahl == 0) {
     }
     elsif (!defined $pw0 || $pw0 eq '') {
         log_oeffnen();
-        FM::Events::add($rt, 'error', 'backup',
-            'Plugin: kein Miniserver-Passwort verfuegbar - Verschluesselung nicht moeglich, kein Eigenbackup',
-            msno => 0);
+        FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('backup_plugin_kein_passwort'), msno => 0);
         say_err('Plugin (msno 0): kein Miniserver-Passwort verfuegbar - kein Eigenbackup');
         $fehler_gesamt++;
     }
@@ -223,7 +220,7 @@ if (!defined $msno_wahl || $msno_wahl == 0) {
             dateien => [ @lb_dateien,
                          { name => 'manifest.json', size => length $manifest, ohne_fp => 1,
                            holen => sub { \$manifest } } ]);
-        melden('Plugin', $r);
+        melden(FM::Meldung->new('wer_plugin'), $r);
     }
 }
 
@@ -241,8 +238,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
         sub { say_deb("Miniserver $msno: $_[0]") });
 
     if (@$fehler) {
-        FM::Events::add($rt, 'error', 'backup',
-            "Miniserver $msno: " . $fehler->[0], msno => 0);
+        FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('ms', $msno, $fehler->[0]), msno => 0);
         say_err("Miniserver $msno: " . $fehler->[0]);
         $fehler_gesamt++;
         next;
@@ -256,8 +252,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
 
     my $pw = FM::Miniserver::backup_passwort($ms);
     if (!defined $pw || $pw eq '') {
-        FM::Events::add($rt, 'error', 'backup',
-            "Miniserver $msno: kein Miniserver-Passwort hinterlegt - Verschluesselung nicht moeglich",
+        FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('ms', $msno, FM::Meldung->new('grund_kein_ms_passwort')),
             msno => 0);
         say_err("Miniserver $msno: kein Passwort hinterlegt - wird nicht gesichert");
         $fehler_gesamt++;
@@ -284,7 +279,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
         msno => $msno, scope => FM::Backup::Strom::scope_string($scope),
         loxname => $loxname, passwort => $pw, dateien => \@liste,
         sagen => sub { say_deb("Miniserver $msno: $_[0]") });
-    melden("Miniserver $msno", $r);
+    melden(FM::Meldung->new('wer_ms', $msno), $r);
 }
 
 remove_tree($tmpdir);

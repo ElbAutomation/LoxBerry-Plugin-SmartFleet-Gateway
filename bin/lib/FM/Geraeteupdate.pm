@@ -53,17 +53,18 @@ sub stufe_setzen {
 
 sub update_starten {
     my (%a) = @_;
-    my $r = $a{release} or return (0, 'keine release.cfg');
-    return (1, 'aktuell') if vergleich($r->{version}, $a{laufend}) <= 0;
+    require FM::Meldung;
+    my $r = $a{release} or return (0, FM::Meldung->new('job_update_keine_releasecfg'));
+    return (1, FM::Meldung->new('job_update_aktuell')) if vergleich($r->{version}, $a{laufend}) <= 0;
     my ($st, $zip) = $a{holen}->($r->{archiv});
-    return (0, 'Archiv nicht ladbar (HTTP ' . (defined $st ? $st : '-') . ')')
+    return (0, FM::Meldung->new('job_update_archiv_http', defined $st ? $st : '-'))
         if !defined $st || $st != 200 || !defined $zip || $zip eq '';
     my $datei = File::Spec->catfile($a{temp}, 'smartfleet-update.zip');
-    open my $fh, '>:raw', $datei or return (0, 'Archiv nicht ablegbar');
+    open my $fh, '>:raw', $datei or return (0, FM::Meldung->new('job_update_archiv_ablage'));
     print {$fh} $zip;
-    close $fh or return (0, 'Archiv nicht ablegbar');
-    $a{starter}->($datei, $a{md5}) or return (0, 'plugininstall.pl nicht gestartet');
-    return (1, "gestartet ($r->{version})");
+    close $fh or return (0, FM::Meldung->new('job_update_archiv_ablage'));
+    $a{starter}->($datei, $a{md5}) or return (0, FM::Meldung->new('job_update_nicht_gestartet'));
+    return (1, FM::Meldung->new('job_update_gestartet', $r->{version}));
 }
 
 sub eigene {
