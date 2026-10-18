@@ -179,8 +179,9 @@ my %HANDLER = (
     ping => sub { return (1, 'pong'); },
 
     backup_now => sub {
-        my ($payload) = @_;
-        my $msno = (ref($payload) eq 'HASH' && defined $payload->{msno}
+        my ($job) = @_;
+        my $payload = (ref($job) eq 'HASH' && ref($job->{payload}) eq 'HASH') ? $job->{payload} : {};
+        my $msno = (defined $payload->{msno}
                     && $payload->{msno} =~ /\A[0-9]{1,10}\z/)
                  ? $payload->{msno} + 0 : undef;
 
