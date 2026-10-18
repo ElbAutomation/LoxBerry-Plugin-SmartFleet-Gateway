@@ -68,8 +68,8 @@ Bereitstellungscode ein, den der Partner erzeugt hat. Danach meldet sich der
 Standort selbstständig an und arbeitet im Minutentakt.
 
 Ausführlich im Handbuch:
-[Plugin installieren](https://smartfleetmanager.de/docs/plugin/installieren/),
-[Standort koppeln](https://smartfleetmanager.de/docs/plugin/standort-koppeln/).
+[Plugin installieren](https://smartfleetmanager.de/docs/gateway/loxberry/install/),
+[Standort koppeln](https://smartfleetmanager.de/docs/gateway/pairing/).
 
 ## Lizenz
 
