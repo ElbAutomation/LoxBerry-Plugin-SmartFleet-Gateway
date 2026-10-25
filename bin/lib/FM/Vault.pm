@@ -203,6 +203,14 @@ sub info_pruefen {
     return 'ok';
 }
 
+sub pin {
+    my ($dir) = @_;
+    my ($st, $p) = eval { _laden(_pfad($dir, 'vault.json')) };
+    return undef if !defined $st || $st ne 'ok' || ref($p) ne 'HASH';
+    return undef if !length($p->{enc_pub} // '') || ($p->{version} // '') !~ /^\d+$/;
+    return { enc_pub => $p->{enc_pub}, key_version => $p->{version} + 0 };
+}
+
 sub pin_loeschen {
     my ($dir) = @_;
     my $lock = _sperre($dir);
@@ -475,9 +483,9 @@ sub ms_einreihen {
 }
 
 sub rumpf_erweitern {
-    my ($dir, $body) = @_;
+    my ($dir, $body, $eintraege) = @_;
     eval {
-        if (optin_gueltig($dir)) {
+        if (optin_gueltig($dir) && (!defined $eintraege || $eintraege)) {
             my $liste = ausstehend($dir);
             $body->{vault} = $liste if @$liste;
         }
@@ -492,7 +500,7 @@ sub antwort_verarbeiten {
     my @ev;
     return @ev if ref($ans) ne 'HASH';
     eval {
-        if (ref($ans->{vault}) eq 'HASH' && optin_gueltig($dir)) {
+        if (ref($ans->{vault}) eq 'HASH') {
             my $vs = info_pruefen($dir, $site, $ans->{vault});
             if ($vs eq 'identitaet_geaendert' || $vs eq 'signatur_ungueltig') {
                 require FM::Meldung;

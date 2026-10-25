@@ -26,6 +26,8 @@ use FM::Backup::Fetch;
 use FM::Backup::Pack;
 use FM::Backup::Strom;
 use FM::Backup::Strom7z;
+use FM::Backup::Sfx1;
+use FM::Vault;
 use FM::Events;
 use FM::Meldung;
 
@@ -172,7 +174,28 @@ my %strom_basis = (
     sagen => \&say_v, roh => \&say_deb,
 );
 
-if (!defined $msno_wahl || $msno_wahl == 0) {
+my $tresor;
+my $ohne_tresor = '';
+if ($state->{backup_siegel}) {
+    my $helfer = "$Bin/fm_sfx1.php";
+    my $pin = FM::Vault::pin($dir);
+    if (!FM::Backup::Sfx1::verfuegbar($helfer)) {
+        $ohne_tresor = 'backup_kein_php';
+    } elsif (!$pin) {
+        $ohne_tresor = 'backup_kein_tresor';
+    } else {
+        $tresor = { %$pin, helfer => $helfer };
+        $strom_basis{tresor} = $tresor;
+    }
+}
+if ($ohne_tresor ne '' && !$dry) {
+    log_oeffnen();
+    FM::Events::add($rt, 'error', 'backup', FM::Meldung->new($ohne_tresor), msno => 0);
+    say_err("$ohne_tresor - kein Backup");
+    $fehler_gesamt++;
+}
+
+if ($ohne_tresor eq '' && (!defined $msno_wahl || $msno_wahl == 0)) {
     my @lb_dateien;
     if (opendir(my $dh, $dir)) {
         for my $name (sort readdir $dh) {
@@ -194,7 +217,7 @@ if (!defined $msno_wahl || $msno_wahl == 0) {
     if (!@lb_dateien) {
         say_v('Plugin (msno 0): keine Datei im Konfigurationsverzeichnis');
     }
-    elsif (!defined $pw0 || $pw0 eq '') {
+    elsif (!$tresor && (!defined $pw0 || $pw0 eq '')) {
         log_oeffnen();
         FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('backup_plugin_kein_passwort'), msno => 0);
         say_err('Plugin (msno 0): kein Miniserver-Passwort verfuegbar - kein Eigenbackup');
@@ -225,6 +248,7 @@ if (!defined $msno_wahl || $msno_wahl == 0) {
 }
 
 for my $msno (sort { $a <=> $b } keys %miniservers) {
+    last if $ohne_tresor ne '';
     next if defined $msno_wahl && $msno != $msno_wahl;
 
     my $ms   = $miniservers{$msno};
@@ -251,7 +275,7 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
     }
 
     my $pw = FM::Miniserver::backup_passwort($ms);
-    if (!defined $pw || $pw eq '') {
+    if (!$tresor && (!defined $pw || $pw eq '')) {
         FM::Events::add($rt, 'error', 'backup', FM::Meldung->new('ms', $msno, FM::Meldung->new('grund_kein_ms_passwort')),
             msno => 0);
         say_err("Miniserver $msno: kein Passwort hinterlegt - wird nicht gesichert");

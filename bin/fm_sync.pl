@@ -25,6 +25,7 @@ use FM::Spool;
 use FM::Events;
 use FM::Meldung;
 use FM::Vault;
+use FM::Backup::Sfx1;
 use FM::Geraeteupdate;
 use POSIX ();
 use FM::Chart;
@@ -96,7 +97,12 @@ my %body = (
     events  => $events,
 );
 $body{selftest} = $selftest if $selftest;
-FM::Vault::rumpf_erweitern($dir, \%body);
+if (!defined $state->{sfx1_ok} || ($state->{sfx1_at} // 0) < $now - 6 * 3600) {
+    $state->{sfx1_ok} = FM::Backup::Sfx1::verfuegbar("$Bin/fm_sfx1.php");
+    $state->{sfx1_at} = $now;
+}
+$body{backup_siegel} = 1 if $state->{sfx1_ok};
+FM::Vault::rumpf_erweitern($dir, \%body, $state->{vault_eintraege} // 1);
 my $body = JSON::PP->new->canonical->utf8->encode(\%body);
 
 my $path     = '/api/sync.php';
@@ -155,6 +161,8 @@ if (ref($ans->{element_pruefung}) eq 'ARRAY') {
         or say_v('Elementdatei: Pruefliste nicht gespeichert');
 }
 
+$state->{backup_siegel} = $ans->{backup_siegel} ? 1 : 0;
+$state->{vault_eintraege} = (exists $ans->{vault_eintraege} && !$ans->{vault_eintraege}) ? 0 : 1;
 for my $ev (FM::Vault::antwort_verarbeiten($dir, $cfg->{site}, $ans, \%body)) {
     FM::Events::add($rt, 'warn', 'vault', FM::Meldung->new('kennung', $ev->[0], $ev->[1]));
 }
@@ -275,7 +283,8 @@ delete $state->{sync_fehler};
 delete $state->{sync_fehler_at};
 
 my $frisch = FM::State::load($rt);
-$frisch->{$_} = $state->{$_} for qw(selftest_last seq desired pending_acks sync_ok_at);
+$frisch->{$_} = $state->{$_} for qw(selftest_last seq desired pending_acks sync_ok_at
+                                    backup_siegel vault_eintraege sfx1_ok sfx1_at);
 delete $frisch->{sync_fehler};
 delete $frisch->{sync_fehler_at};
 

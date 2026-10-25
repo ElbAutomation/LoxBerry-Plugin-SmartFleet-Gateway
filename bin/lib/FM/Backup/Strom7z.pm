@@ -60,8 +60,8 @@ sub _u64 { my ($v) = @_; return pack('VV', $v % 4294967296, int($v / 4294967296)
 
 sub new {
     my ($class, $key, $aus) = @_;
-    die "FM::Backup::Strom7z: Schluessel muss 32 Byte haben\n" if length($key // '') != 32;
-    require Crypt::Mode::CBC;
+    die "FM::Backup::Strom7z: Schluessel muss 32 Byte haben\n" if defined $key && length($key) != 32;
+    require Crypt::Mode::CBC if defined $key;
     require Compress::Raw::Lzma;
     my $z = bless { key => $key, aus => $aus, d => [], offen => 0, strom => 0 }, $class;
     $aus->("\0" x 32);
@@ -72,6 +72,11 @@ sub _an_aes {
     my ($z, $p) = @_;
     return if $p eq '';
     $z->{gepackt} += length $p;
+    if (!defined $z->{key}) {
+        $z->{chiffre} += length $p;
+        $z->{aus}->($p);
+        return;
+    }
     $z->{puf} .= $p;
     if (length($z->{puf}) >= PUFFER) {
         my $n = length($z->{puf}) - length($z->{puf}) % 16;
@@ -83,9 +88,11 @@ sub _an_aes {
 
 sub _strom_beginn {
     my ($z) = @_;
-    $z->{iv0} = _zufall(16);
-    $z->{cbc} = Crypt::Mode::CBC->new('AES', 0);
-    $z->{cbc}->start_encrypt($z->{key}, $z->{iv0});
+    if (defined $z->{key}) {
+        $z->{iv0} = _zufall(16);
+        $z->{cbc} = Crypt::Mode::CBC->new('AES', 0);
+        $z->{cbc}->start_encrypt($z->{key}, $z->{iv0});
+    }
     ($z->{roh}, $z->{gepackt}, $z->{chiffre}, $z->{puf}) = (0, 0, 0, '');
     my ($lz, $st) = Compress::Raw::Lzma::RawEncoder->new(
         Filter => [ Lzma::Filter::Lzma2(DictSize => WOERTERBUCH) ], AppendOutput => 0);
@@ -109,15 +116,17 @@ sub _strom_ende {
     my $st = $z->{lz}->flush($out);
     die "FM::Backup::Strom7z: LZMA2 ($st)\n" if $st != Compress::Raw::Lzma::LZMA_STREAM_END();
     $z->_an_aes($out) if defined $out;
-    my $rest = length($z->{puf}) % 16;
-    $z->{puf} .= "\0" x (16 - $rest) if $rest;
-    if ($z->{puf} ne '') {
-        my $c = $z->{cbc}->add($z->{puf});
-        $z->{puf} = '';
-        $z->{chiffre} += length $c;
-        $z->{aus}->($c);
+    if (defined $z->{key}) {
+        my $rest = length($z->{puf}) % 16;
+        $z->{puf} .= "\0" x (16 - $rest) if $rest;
+        if ($z->{puf} ne '') {
+            my $c = $z->{cbc}->add($z->{puf});
+            $z->{puf} = '';
+            $z->{chiffre} += length $c;
+            $z->{aus}->($c);
+        }
+        $z->{cbc}->finish;
     }
-    $z->{cbc}->finish;
     delete $z->{lz};
     $z->{strom} = 0;
 }
@@ -134,8 +143,9 @@ sub _ordner {
 sub _strom_info {
     my ($packpos, $packsize, $iv, $roh, $gepackt, $crc) = @_;
     return "\x06" . _zahl($packpos) . _zahl(1) . "\x09" . _zahl($packsize) . "\x00"
-         . "\x07\x0B" . _zahl(1) . "\x00" . _ordner($iv)
-         . "\x0C" . _zahl($roh) . _zahl($gepackt)
+         . "\x07\x0B" . _zahl(1) . "\x00"
+         . (defined $iv ? _ordner($iv) : _zahl(1) . "\x21\x21\x01" . chr(WB_PROP))
+         . "\x0C" . _zahl($roh) . (defined $iv ? _zahl($gepackt) : '')
          . (defined $crc ? "\x0A\x01" . pack('V', $crc) : '')
          . "\x00";
 }
@@ -228,6 +238,12 @@ sub ende {
     }
     $h .= "\x00\x00";
 
+    if (!defined $z->{key}) {
+        $z->{aus}->($h);
+        my $rest = _u64($h_pack) . _u64(length $h) . pack('V', Compress::Raw::Zlib::crc32($h));
+        my $kopf = "7z\xBC\xAF\x27\x1C\x00\x04" . pack('V', Compress::Raw::Zlib::crc32($rest)) . $rest;
+        return ($kopf, 32 + $h_pack + length $h);
+    }
     my $h_crc = Compress::Raw::Zlib::crc32($h);
     $z->_strom_beginn;
     $z->_strom_daten($h);

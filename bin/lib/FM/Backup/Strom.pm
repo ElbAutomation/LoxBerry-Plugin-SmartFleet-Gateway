@@ -14,6 +14,8 @@ use FM::Sig;
 use FM::Http;
 use FM::Backup::Pack;
 use FM::Backup::Strom7z;
+use FM::Backup::Sfx1;
+use FM::B64;
 
 use constant CHUNK    => 1048576;
 use constant LESEN    => 65536;
@@ -62,11 +64,24 @@ sub senden {
     my $fehler = sub { return { lage => 'error', meldung => $_[0], files => 0, fehlend => [], stuecke => $_[1] || 0 } };
 
     return $fehler->(FM::Meldung->new('grund_keine_dateien')) if !@d;
+    my $tresor = ref($a{tresor}) eq 'HASH' ? $a{tresor} : undef;
     return $fehler->(FM::Meldung->new('grund_kein_passwort'))
-        if !defined $a{passwort} || $a{passwort} eq '';
+        if !$tresor && (!defined $a{passwort} || $a{passwort} eq '');
     my $summe = 0;
     $summe += $_->{size} for @d;
     my $max = size_max($summe);
+
+    my ($sfx, $siegel);
+    my $seg = $tresor ? ($tresor->{segment} || CHUNK) : 0;
+    if ($tresor) {
+        my $pub = eval { FM::B64::b64u_decode($tresor->{enc_pub} // '') };
+        return $fehler->(FM::Meldung->new('grund_tresor_ungueltig')) if !defined $pub || length($pub) != 32;
+        $sfx = eval { FM::Backup::Sfx1->new($tresor->{helfer}, $seg) };
+        return $fehler->(FM::Meldung->new('grund_helfer', _kurz($@))) if !$sfx;
+        $siegel = eval { $sfx->siegel($pub) };
+        return $fehler->(FM::Meldung->new('grund_helfer', _kurz($@))) if !defined $siegel || $siegel eq '';
+        $max += 25 + 44 * (int($max / $seg) + 2);
+    }
 
     my $mit_wdh = sub {
         my ($pfad, $daten) = @_;
@@ -84,7 +99,15 @@ sub senden {
                                      grep { !$_->{ohne_fp} } @d ]),
                  size_max => $max };
     $init->{loxname} = $a{loxname} if defined $a{loxname} && $a{loxname} ne '';
+    if ($tresor) {
+        $init->{siegel} = $siegel;
+        $init->{key_version} = $tresor->{key_version} + 0;
+    }
     my ($st, $ans) = $mit_wdh->('/api/backup/init.php', $init);
+    if ($st == 409 && ($ans->{error} // '') eq 'kein_tresor') {
+        return { lage => 'error', meldung => FM::Meldung->new('grund_kein_tresor'),
+                 files => 0, fehlend => [], stuecke => 0 };
+    }
     if ($st == 409 && ($ans->{error} // '') eq 'ms_konflikt') {
         return { lage => 'abgelehnt', meldung => FM::Meldung->new('grund_anderes_gateway'),
                  files => 0, fehlend => [], stuecke => 0 };
@@ -94,6 +117,7 @@ sub senden {
     }
     return $fehler->("init: HTTP $st" . (defined $ans->{message} ? " - $ans->{message}" : '')) if $st != 200;
     if ($ans->{known}) {
+        $sfx->ende if $sfx;
         return { lage => 'known', meldung => 'Liste bekannt', files => 0, fehlend => [], stuecke => 0 };
     }
     my $upload = $ans->{upload} // '';
@@ -118,10 +142,15 @@ sub senden {
         $puf = '';
         $sagen->("Stueck $nr hochgeladen");
     };
-    my $aus = sub {
+    my $ganz = Digest::SHA->new(256);
+    my $hinaus = sub {
         my ($p) = @_;
-        my $ab = $gesamt >= 32 ? 0 : 32 - $gesamt;
-        $tail->add(substr($p, $ab)) if $ab < length $p;
+        if ($tresor) {
+            $ganz->add($p);
+        } else {
+            my $ab = $gesamt >= 32 ? 0 : 32 - $gesamt;
+            $tail->add(substr($p, $ab)) if $ab < length $p;
+        }
         $gesamt += length $p;
         $puf .= $p;
         while (length($puf) >= $chunk) {
@@ -131,10 +160,20 @@ sub senden {
             $puf = $rest;
         }
     };
+    my ($klar, $z7) = ('', 0);
+    my $aus = !$tresor ? $hinaus : sub {
+        my ($p) = @_;
+        my $ab = $z7 >= 32 ? 0 : 32 - $z7;
+        $z7 += length $p;
+        return if $ab >= length $p;
+        $klar .= substr($p, $ab);
+        $hinaus->($sfx->segment(substr($klar, 0, $seg, ''), 0)) while length($klar) > $seg;
+    };
 
     my (@erfasst, @fehlend, $offen);
     my $ergebnis = eval {
-        my $z = FM::Backup::Strom7z->new(FM::Backup::Strom7z::schluessel($a{passwort}), $aus);
+        $hinaus->($sfx->kopf) if $tresor;
+        my $z = FM::Backup::Strom7z->new($tresor ? undef : FM::Backup::Strom7z::schluessel($a{passwort}), $aus);
         for my $e (@d) {
             my $q = $e->{holen}->();
             if (!defined $q) {
@@ -159,12 +198,20 @@ sub senden {
         }
         if (!@erfasst) { $grund = FM::Meldung->new('grund_keine_datei_holbar'); die "$grund\n"; }
         my ($kopf, $groesse) = $z->ende;
+        my $abschluss = { upload => $upload, fingerprint => FM::Backup::Pack::fingerprint(\@erfasst, 1),
+                          files => scalar(@erfasst), vollstaendig => (@fehlend ? 0 : 1) };
+        if ($tresor) {
+            $hinaus->($sfx->segment($klar, 1));
+            $klar = '';
+            my $kk = $sfx->startkopf($kopf);
+            die "Helfer: Abschluss fehlgeschlagen\n" if !$sfx->ende;
+            $groesse = $gesamt;
+            $abschluss = { %$abschluss, size => $gesamt, sha256 => $ganz->hexdigest, kopf => FM::B64::b64u_encode($kk) };
+        } else {
+            $abschluss = { %$abschluss, head => encode_base64($kopf, ''), size => $groesse, sha256_tail => $tail->hexdigest };
+        }
         $stueck_senden->();
-        my ($cs, $ca) = $mit_wdh->('/api/backup/complete.php', {
-            upload => $upload, head => encode_base64($kopf, ''), size => $groesse,
-            sha256_tail => $tail->hexdigest, fingerprint => FM::Backup::Pack::fingerprint(\@erfasst, 1),
-            files => scalar(@erfasst), vollstaendig => (@fehlend ? 0 : 1),
-        });
+        my ($cs, $ca) = $mit_wdh->('/api/backup/complete.php', $abschluss);
         if ($cs != 200) { $grund = FM::Meldung->new('grund_abschluss_abgelehnt', $cs); die "$grund\n"; }
         +{ lage => ($ca->{known} ? 'known' : 'done'), meldung => ($ca->{known} ? 'Inhalt bekannt' : 'hochgeladen'),
           files => scalar(@erfasst), fehlend => \@fehlend, size => $groesse, stuecke => $nr };
@@ -180,6 +227,13 @@ sub senden {
         return $r;
     }
     return $ergebnis;
+}
+
+sub _kurz {
+    my ($t) = @_;
+    $t = '' if !defined $t;
+    $t =~ s/\s+\z//;
+    return $t;
 }
 
 1;
