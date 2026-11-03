@@ -122,7 +122,7 @@ sub get_to_file {
 
     if (!$r->{success}) {
         unlink $ziel;
-        return (0, 0);
+        return (0, 0, $r->{status} // 0);
     }
     return (1, $bytes);
 }

@@ -170,14 +170,15 @@ sub senden {
         $hinaus->($sfx->segment(substr($klar, 0, $seg, ''), 0)) while length($klar) > $seg;
     };
 
-    my (@erfasst, @fehlend, $offen);
+    my (@erfasst, @fehlend, @fehlgrund, $offen);
     my $ergebnis = eval {
         $hinaus->($sfx->kopf) if $tresor;
         my $z = FM::Backup::Strom7z->new($tresor ? undef : FM::Backup::Strom7z::schluessel($a{passwort}), $aus);
         for my $e (@d) {
-            my $q = $e->{holen}->();
+            my ($q, $status) = $e->{holen}->();
             if (!defined $q) {
                 push @fehlend, '/' . $e->{name};
+                push @fehlgrund, { pfad => '/' . $e->{name}, status => $status // 0 };
                 $sagen->("/$e->{name} nicht holbar");
                 next;
             }
@@ -214,7 +215,7 @@ sub senden {
         my ($cs, $ca) = $mit_wdh->('/api/backup/complete.php', $abschluss);
         if ($cs != 200) { $grund = FM::Meldung->new('grund_abschluss_abgelehnt', $cs); die "$grund\n"; }
         +{ lage => ($ca->{known} ? 'known' : 'done'), meldung => ($ca->{known} ? 'Inhalt bekannt' : 'hochgeladen'),
-          files => scalar(@erfasst), fehlend => \@fehlend, size => $groesse, stuecke => $nr };
+          files => scalar(@erfasst), fehlend => \@fehlend, fehlgrund => \@fehlgrund, size => $groesse, stuecke => $nr };
     };
     if (!$ergebnis) {
         unlink $offen if defined $offen;
@@ -224,6 +225,7 @@ sub senden {
         my $r = $fehler->($m, $nr);
         $r->{lage} = 'voll' if $voll;
         $r->{fehlend} = \@fehlend;
+        $r->{fehlgrund} = \@fehlgrund;
         return $r;
     }
     return $ergebnis;

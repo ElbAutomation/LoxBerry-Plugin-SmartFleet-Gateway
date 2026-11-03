@@ -23,6 +23,7 @@ use FM::Cron;
 use FM::Miniserver;
 use FM::Backup::Catalog;
 use FM::Backup::Fetch;
+use FM::Backup::Fehlliste;
 use FM::Backup::Pack;
 use FM::Backup::Strom;
 use FM::Backup::Strom7z;
@@ -162,9 +163,11 @@ sub melden {
         $erfolg++;
     }
     if (@{ $r->{fehlend} || [] } && $l ne 'error') {
-        my $text = FM::Meldung->new('backup_unvollstaendig', $wer,
-                           scalar @{ $r->{fehlend} }, scalar(@{ $r->{fehlend} }) + $r->{files});
-        FM::Events::add($rt, 'warn', 'backup', $text, msno => 0);
+        my $n = scalar @{ $r->{fehlend} };
+        my $gruende = $r->{fehlgrund} || [ map { { pfad => $_, status => 0 } } @{ $r->{fehlend} } ];
+        my $text = FM::Backup::Fehlliste::meldung($wer, $gruende, $n, $n + $r->{files});
+        FM::Events::add($rt, 'warn', 'backup', $text, msno => 0,
+                        detail => FM::Backup::Fehlliste::detail($gruende, $n));
         say_warn($text);
     }
 }
@@ -292,9 +295,9 @@ for my $msno (sort { $a <=> $b } keys %miniservers) {
         my $d = $_;
         { name => substr($d->{path}, 1), size => $d->{size}, datum => $d->{datum}, weg => 1,
           holen => sub {
-              my ($got, $bytes) = FM::Backup::Fetch::get_to_file($base, $cred, $d->{path}, $ziel,
+              my ($got, $bytes, $status) = FM::Backup::Fetch::get_to_file($base, $cred, $d->{path}, $ziel,
                   sub { say_deb("Miniserver $msno: $_[0]") });
-              return undef if !$got;
+              return (undef, $status) if !$got;
               say_deb("Miniserver $msno: $d->{path} ($bytes Byte)");
               return $ziel;
           } }
